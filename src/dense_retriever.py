@@ -11,7 +11,13 @@ compared fairly.
 
 Design choices:
   - Corpus granularity is the caller's choice: per-question (~10 context
-    paragraphs, Week 1 default) or a pooled shared corpus (Week 2).
+    paragraphs, Week 1 default) or a pooled shared corpus (Week 2). Either
+    way the index (doc_embeddings) is built ONCE at construction and reused
+    for every query -- in the pooled setting that means one shared index
+    answers all 500+ questions. `retrieve_many` (Week 2 A4) exploits this:
+    it batch-encodes all queries in a single encoder call and scores them
+    with one matrix multiply, which is markedly faster than looping
+    `retrieve` per query when the real model is loaded.
   - Model: sentence-transformers/all-MiniLM-L6-v2, per the project plan.
   - Similarity: cosine similarity, computed as a dot product of
     L2-normalized embeddings.
@@ -139,16 +145,15 @@ class DenseRetriever:
             self._encoder = _build_default_encoder(self._model_name)
         return self._encoder(texts)
 
-    def retrieve(self, query: str, top_k: int = 10) -> List[Tuple[Paragraph, float]]:
-        """
-        Returns the top_k paragraphs ranked by cosine similarity to the
-        query, highest first, as (Paragraph, score) tuples.
-        """
-        query_embedding = self._encode([query])
-        query_vec = _l2_normalize(np.asarray(query_embedding, dtype=np.float32))[0]
-
-        scores = self.doc_embeddings @ query_vec
-
+    def _rank_paragraphs(
+        self, scores, top_k: int
+    ) -> List[Tuple[Paragraph, float]]:
+        """Given one score per paragraph (a length-N array/sequence aligned
+        with self.paragraphs), return the top_k (Paragraph, score) tuples,
+        highest score first. Sorting is stable, so paragraphs with equal
+        scores keep their original corpus order. Both retrieve() and
+        retrieve_many() route through here, so single-query and batch
+        results are identical, including tie-breaking."""
         ranked = sorted(
             zip(self.paragraphs, scores),
             key=lambda pair: pair[1],
@@ -156,7 +161,57 @@ class DenseRetriever:
         )
         return [(paragraph, float(score)) for paragraph, score in ranked[:top_k]]
 
+    def _encode_queries(self, queries: List[str]) -> np.ndarray:
+        """Encode + L2-normalize a batch of query strings into an
+        (n_queries, dim) matrix, so cosine similarity against the
+        (already normalized) doc embeddings is a plain dot product."""
+        embeddings = self._encode(queries)
+        return _l2_normalize(np.asarray(embeddings, dtype=np.float32))
+
+    def retrieve(self, query: str, top_k: int = 10) -> List[Tuple[Paragraph, float]]:
+        """
+        Returns the top_k paragraphs ranked by cosine similarity to the
+        query, highest first, as (Paragraph, score) tuples.
+        """
+        query_vec = self._encode_queries([query])[0]
+        scores = self.doc_embeddings @ query_vec
+        return self._rank_paragraphs(scores, top_k)
+
     def retrieve_titles(self, query: str, top_k: int = 10) -> List[str]:
         """Convenience wrapper: same as retrieve(), but returns just the
         ranked list of paragraph titles (what the evaluator needs)."""
         return [p.title for p, _ in self.retrieve(query, top_k=top_k)]
+
+    def retrieve_many(
+        self, queries: List[str], top_k: int = 10
+    ) -> List[List[Tuple[Paragraph, float]]]:
+        """Pooled-setting batch query (Week 2 A4): score MANY queries against
+        the one shared index in a single pass and return, for each query, its
+        top_k (Paragraph, score) tuples.
+
+        All queries are encoded in one encoder call and scored with a single
+        matrix multiply (doc_embeddings @ query_matrix.T), instead of looping
+        retrieve() per query. Results are element-for-element identical to
+        [self.retrieve(q, top_k) for q in queries] -- same ranking, same
+        tie-breaking -- just computed more efficiently. The index itself is
+        never mutated, so query order does not affect any result.
+        """
+        if not queries:
+            return []
+        # query_matrix: (n_queries, dim); score_matrix: (n_paragraphs, n_queries).
+        query_matrix = self._encode_queries(queries)
+        score_matrix = self.doc_embeddings @ query_matrix.T
+        return [
+            self._rank_paragraphs(score_matrix[:, j], top_k)
+            for j in range(len(queries))
+        ]
+
+    def retrieve_many_titles(
+        self, queries: List[str], top_k: int = 10
+    ) -> List[List[str]]:
+        """Batch counterpart of retrieve_titles: for each query, just the
+        ranked list of paragraph titles."""
+        return [
+            [p.title for p, _ in results]
+            for results in self.retrieve_many(queries, top_k=top_k)
+        ]

@@ -91,6 +91,73 @@ def test_retrieve_returns_paragraph_score_tuples_descending():
     assert results[0][0].title == "SeaAndSky"
 
 
+def make_pooled_paragraphs():
+    """A larger 'pooled' corpus (paragraphs from several questions merged
+    into one shared index), so batch-query behavior is meaningful."""
+    return [
+        Paragraph(title="Cats", text="cat cat cat"),
+        Paragraph(title="Dogs", text="dog dog dog"),
+        Paragraph(title="Fish", text="fish fish fish"),
+        Paragraph(title="Birds", text="bird bird bird"),
+        Paragraph(title="CatDog", text="cat dog"),
+    ]
+
+
+def test_pooled_index_serves_multiple_queries_correctly():
+    """Week 2 A4 completion criterion: build the shared index ONCE, then
+    fire several different queries at it -- each must rank correctly."""
+    retriever = DenseRetriever(make_pooled_paragraphs(), encoder=fake_encode)
+
+    assert retriever.retrieve_titles("cat", top_k=1)[0] == "Cats"
+    assert retriever.retrieve_titles("dog", top_k=1)[0] == "Dogs"
+    assert retriever.retrieve_titles("fish", top_k=1)[0] == "Fish"
+    assert retriever.retrieve_titles("bird", top_k=1)[0] == "Birds"
+
+
+def test_retrieve_many_matches_looping_retrieve():
+    """retrieve_many must be element-for-element identical to calling
+    retrieve() once per query -- same ranking, same scores, same ties."""
+    retriever = DenseRetriever(make_pooled_paragraphs(), encoder=fake_encode)
+    queries = ["cat", "dog", "fish", "bird", "cat dog"]
+
+    batch = retriever.retrieve_many(queries, top_k=3)
+    looped = [retriever.retrieve(q, top_k=3) for q in queries]
+
+    assert len(batch) == len(queries)
+    for batch_results, loop_results in zip(batch, looped):
+        assert [p.title for p, _ in batch_results] == [
+            p.title for p, _ in loop_results
+        ]
+        assert [s for _, s in batch_results] == [s for _, s in loop_results]
+
+
+def test_retrieve_many_encodes_all_queries_in_one_call():
+    """The pooled efficiency win: N queries cost ONE encoder call, not N.
+    Construction encodes the docs (1 call); retrieve_many then adds exactly
+    one more call regardless of how many queries are passed."""
+    enc, calls = make_counting_encoder()
+    retriever = DenseRetriever(make_pooled_paragraphs(), encoder=enc)
+    assert calls["n"] == 1  # docs encoded at construction
+
+    retriever.retrieve_many(["cat", "dog", "fish", "bird"], top_k=2)
+    assert calls["n"] == 2  # all four queries in a single batch call
+
+
+def test_retrieve_many_empty_returns_empty():
+    retriever = DenseRetriever(make_pooled_paragraphs(), encoder=fake_encode)
+    assert retriever.retrieve_many([], top_k=3) == []
+
+
+def test_retrieve_many_titles_matches_retrieve_many():
+    retriever = DenseRetriever(make_pooled_paragraphs(), encoder=fake_encode)
+    queries = ["cat", "fish"]
+
+    titles = retriever.retrieve_many_titles(queries, top_k=2)
+    tuples = retriever.retrieve_many(queries, top_k=2)
+
+    assert titles == [[p.title for p, _ in results] for results in tuples]
+
+
 def test_cache_hit_skips_encoding_entirely():
     """Week 2 A3 completion criterion: building a second retriever over the
     same corpus with the same cache dir must make ZERO encoder calls."""
@@ -204,6 +271,11 @@ if __name__ == "__main__":
     test_retrieve_titles_ranks_most_similar_first()
     test_top_k_limits_number_of_results()
     test_retrieve_returns_paragraph_score_tuples_descending()
+    test_pooled_index_serves_multiple_queries_correctly()
+    test_retrieve_many_matches_looping_retrieve()
+    test_retrieve_many_encodes_all_queries_in_one_call()
+    test_retrieve_many_empty_returns_empty()
+    test_retrieve_many_titles_matches_retrieve_many()
     test_cache_hit_skips_encoding_entirely()
     test_stale_cache_for_different_corpus_is_reencoded_and_overwritten()
     test_cache_for_different_model_is_treated_as_miss()
