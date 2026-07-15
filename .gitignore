@@ -1,5 +1,12 @@
-# Local files
-docs/
+# Local-only docs (personal notes / already-distributed material / Chinese-language files).
+# Everything else under docs/ IS tracked and shared with Teammate:
+#   docs/Plans/ joint plan + scope + idea docs, docs/Completion_Log/ (AI Usage Declaration source).
+docs/concepts/
+docs/From_Professor/
+docs/Plans/proposal.md
+docs/Plans/Xin_Implementation_Plan.md
+docs/Weekly_Progress_to_be_submitted/
+docs/specs/*.zh.md
 .claude
 
 # Byte-compiled / optimized / DLL files
