@@ -1,9 +1,7 @@
 """
 run_week1_dense_debug.py
 
-Xin's Week 1 end-to-end debug run for DENSE retrieval, mirroring Jiajun's
-run_week1_debug.py (BM25). It runs dense retrieval AND BM25 on the same
-small subset so their top-k passages can be eyeballed side by side:
+It runs dense retrieval AND BM25 on the same small subset so their top-k passages can be eyeballed side by side:
 
     HotpotQA example -> paragraph corpus -> {dense, BM25} -> top-k -> Any Evidence Recall@k
 

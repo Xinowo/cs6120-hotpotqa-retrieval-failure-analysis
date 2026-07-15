@@ -14,6 +14,8 @@ import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+import tempfile
+
 import numpy as np
 
 from src.data_loader import Paragraph
@@ -39,6 +41,19 @@ def make_paragraphs():
         Paragraph(title="Dogs", text="dog dog"),
         Paragraph(title="SeaAndSky", text="fish bird"),
     ]
+
+
+def make_counting_encoder():
+    """Wraps fake_encode with a call counter, so tests can assert exactly
+    how many times the retriever actually invoked the encoder (Week 2 A3:
+    a cache hit must mean ZERO encoder calls at construction time)."""
+    calls = {"n": 0}
+
+    def counting_encode(texts):
+        calls["n"] += 1
+        return fake_encode(texts)
+
+    return counting_encode, calls
 
 
 def test_retrieve_titles_ranks_most_similar_first():
@@ -75,8 +90,63 @@ def test_retrieve_returns_paragraph_score_tuples_descending():
     assert results[0][0].title == "SeaAndSky"
 
 
+def test_cache_hit_skips_encoding_entirely():
+    """Week 2 A3 completion criterion: building a second retriever over the
+    same corpus with the same cache dir must make ZERO encoder calls."""
+    with tempfile.TemporaryDirectory() as cache_dir:
+        # First build: cold cache, encoder must run (once, for the docs).
+        enc1, calls1 = make_counting_encoder()
+        first = DenseRetriever(make_paragraphs(), encoder=enc1, cache_dir=cache_dir)
+        assert calls1["n"] == 1
+
+        # Second build: warm cache, encoder must NOT run at all.
+        enc2, calls2 = make_counting_encoder()
+        second = DenseRetriever(make_paragraphs(), encoder=enc2, cache_dir=cache_dir)
+        assert calls2["n"] == 0
+
+        # And the cached index must behave identically to the fresh one.
+        assert np.array_equal(second.doc_embeddings, first.doc_embeddings)
+        assert second.retrieve_titles("cat", top_k=3) == first.retrieve_titles(
+            "cat", top_k=3
+        )
+
+
+def test_stale_cache_for_different_corpus_is_reencoded_and_overwritten():
+    """A cache dir written for one corpus must not be silently reused for a
+    different one: titles mismatch -> re-encode and overwrite the cache."""
+    other_paragraphs = [
+        Paragraph(title="Birds", text="bird bird"),
+        Paragraph(title="Fish", text="fish fish"),
+    ]
+
+    with tempfile.TemporaryDirectory() as cache_dir:
+        DenseRetriever(make_paragraphs(), encoder=fake_encode, cache_dir=cache_dir)
+
+        # Same cache dir, different corpus: must re-encode, not reuse.
+        enc2, calls2 = make_counting_encoder()
+        retriever = DenseRetriever(other_paragraphs, encoder=enc2, cache_dir=cache_dir)
+        assert calls2["n"] == 1
+        assert retriever.retrieve_titles("bird", top_k=1) == ["Birds"]
+
+        # The overwritten cache now serves the NEW corpus as a hit.
+        enc3, calls3 = make_counting_encoder()
+        DenseRetriever(other_paragraphs, encoder=enc3, cache_dir=cache_dir)
+        assert calls3["n"] == 0
+
+
+def test_no_cache_dir_keeps_week1_behavior():
+    """Without cache_dir, every construction encodes (Week 1 behavior)."""
+    enc, calls = make_counting_encoder()
+    DenseRetriever(make_paragraphs(), encoder=enc)
+    DenseRetriever(make_paragraphs(), encoder=enc)
+    assert calls["n"] == 2
+
+
 if __name__ == "__main__":
     test_retrieve_titles_ranks_most_similar_first()
     test_top_k_limits_number_of_results()
     test_retrieve_returns_paragraph_score_tuples_descending()
+    test_cache_hit_skips_encoding_entirely()
+    test_stale_cache_for_different_corpus_is_reencoded_and_overwritten()
+    test_no_cache_dir_keeps_week1_behavior()
     print("All dense_retriever tests passed.")
