@@ -20,6 +20,13 @@ Design choices:
     embedding_cache.py. On a warm cache that matches this corpus, the
     encoder is not called at all during construction -- for the real
     model that means no model load until the first query.
+  - Cache identity is the (title list, model_name) pair: a cache written
+    for a different corpus OR by a different model is a miss, never
+    silently reused. If you inject a custom encoder AND use a cache_dir,
+    pass a model_name that identifies that encoder.
+  - Embeddings are kept as float32 (MiniLM's native output dtype);
+    upcasting to float64 would double memory and cache size for no
+    retrieval benefit.
 
 Testability: an `encoder` callable can be injected. When it is None, the
 real SentenceTransformer model is built lazily on first use. Tests inject a
@@ -51,31 +58,41 @@ def _build_default_encoder(model_name: str) -> Encoder:
     def encode(texts: List[str]) -> np.ndarray:
         return np.asarray(
             model.encode(texts, convert_to_numpy=True, show_progress_bar=False),
-            dtype=float,
+            dtype=np.float32,
         )
 
     return encode
 
 
-def _try_load_cached_embeddings(cache_dir, titles: List[str]) -> Optional[np.ndarray]:
+def _try_load_cached_embeddings(
+    cache_dir, titles: List[str], model_name: str
+) -> Optional[np.ndarray]:
     """Returns the cached (already normalized) embedding matrix if cache_dir
-    holds a cache for exactly this corpus, else None (= encode from scratch).
+    holds a cache for exactly this corpus AND this model, else None
+    (= encode from scratch).
 
     "Exactly this corpus" means the cached title list equals `titles`,
-    including order -- rows and paragraphs must line up index-for-index. A
-    title mismatch is treated as a cache MISS (stale cache from another
-    corpus, e.g. a different n or split), so the caller re-encodes and
-    overwrites. A structurally corrupted cache (title count != row count)
-    still raises ValueError from load_embedding_cache: that is damage, not
-    staleness, and should be loud.
+    including order -- rows and paragraphs must line up index-for-index.
+    Any of the following is treated as a cache MISS, so the caller
+    re-encodes and overwrites:
+      - cache files absent (never built here);
+      - title mismatch (stale cache from another corpus, e.g. a
+        different n or split);
+      - model_name mismatch (same corpus encoded by a different model --
+        those vectors live in a different embedding space, and reusing
+        them would silently corrupt every similarity score);
+      - legacy cache without meta.json (model unknown -> can't trust it).
+    A structurally corrupted cache (title count != row count) still raises
+    ValueError from load_embedding_cache: that is damage, not staleness,
+    and should be loud.
     """
     if cache_dir is None:
         return None
     try:
-        cached_titles, matrix = load_embedding_cache(cache_dir)
+        cached_titles, matrix, cached_model_name = load_embedding_cache(cache_dir)
     except FileNotFoundError:
         return None
-    if cached_titles != titles:
+    if cached_titles != titles or cached_model_name != model_name:
         return None
     return matrix
 
@@ -104,16 +121,16 @@ class DenseRetriever:
         self._model_name = model_name
 
         titles = [p.title for p in paragraphs]
-        cached = _try_load_cached_embeddings(cache_dir, titles)
+        cached = _try_load_cached_embeddings(cache_dir, titles, model_name)
         if cached is not None:
             self.doc_embeddings = cached
             return
 
         # Cache miss (or no cache configured): encode + normalize once.
         doc_embeddings = self._encode([p.text for p in paragraphs])
-        self.doc_embeddings = _l2_normalize(np.asarray(doc_embeddings, dtype=float))
+        self.doc_embeddings = _l2_normalize(np.asarray(doc_embeddings, dtype=np.float32))
         if cache_dir is not None:
-            save_embedding_cache(cache_dir, titles, self.doc_embeddings)
+            save_embedding_cache(cache_dir, titles, self.doc_embeddings, model_name)
 
     def _encode(self, texts: List[str]) -> np.ndarray:
         """All encoding goes through here; the default model is only built
@@ -128,7 +145,7 @@ class DenseRetriever:
         query, highest first, as (Paragraph, score) tuples.
         """
         query_embedding = self._encode([query])
-        query_vec = _l2_normalize(np.asarray(query_embedding, dtype=float))[0]
+        query_vec = _l2_normalize(np.asarray(query_embedding, dtype=np.float32))[0]
 
         scores = self.doc_embeddings @ query_vec
 
