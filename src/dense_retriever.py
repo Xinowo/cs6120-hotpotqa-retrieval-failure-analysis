@@ -9,14 +9,17 @@ retrieve(query, top_k) and retrieve_titles(query, top_k) -- so it is a
 drop-in swap in the experiment/debug scripts and the two methods can be
 compared fairly.
 
-Design choices (Week 1, kept deliberately simple):
-  - Per-question corpus: like BM25, the retriever is built PER QUESTION
-    over that question's own ~10 context paragraphs, not all of Wikipedia.
-    So paragraph embeddings are (re)computed per question. Embedding
-    caching across questions is a Week 2 optimization, not a Week 1 goal.
+Design choices:
+  - Corpus granularity is the caller's choice: per-question (~10 context
+    paragraphs, Week 1 default) or a pooled shared corpus (Week 2).
   - Model: sentence-transformers/all-MiniLM-L6-v2, per the project plan.
   - Similarity: cosine similarity, computed as a dot product of
     L2-normalized embeddings.
+  - Embedding cache (Week 2 A3): pass `cache_dir` to persist the
+    (normalized) document embedding matrix + title list via
+    embedding_cache.py. On a warm cache that matches this corpus, the
+    encoder is not called at all during construction -- for the real
+    model that means no model load until the first query.
 
 Testability: an `encoder` callable can be injected. When it is None, the
 real SentenceTransformer model is built lazily on first use. Tests inject a
@@ -28,6 +31,7 @@ from typing import Callable, List, Optional, Tuple
 import numpy as np
 
 from src.data_loader import Paragraph
+from src.embedding_cache import load_embedding_cache, save_embedding_cache
 
 DEFAULT_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 
@@ -53,6 +57,29 @@ def _build_default_encoder(model_name: str) -> Encoder:
     return encode
 
 
+def _try_load_cached_embeddings(cache_dir, titles: List[str]) -> Optional[np.ndarray]:
+    """Returns the cached (already normalized) embedding matrix if cache_dir
+    holds a cache for exactly this corpus, else None (= encode from scratch).
+
+    "Exactly this corpus" means the cached title list equals `titles`,
+    including order -- rows and paragraphs must line up index-for-index. A
+    title mismatch is treated as a cache MISS (stale cache from another
+    corpus, e.g. a different n or split), so the caller re-encodes and
+    overwrites. A structurally corrupted cache (title count != row count)
+    still raises ValueError from load_embedding_cache: that is damage, not
+    staleness, and should be loud.
+    """
+    if cache_dir is None:
+        return None
+    try:
+        cached_titles, matrix = load_embedding_cache(cache_dir)
+    except FileNotFoundError:
+        return None
+    if cached_titles != titles:
+        return None
+    return matrix
+
+
 def _l2_normalize(matrix: np.ndarray) -> np.ndarray:
     """Row-wise L2 normalization. Zero-norm rows are left as zeros (their
     cosine similarity to anything is then 0), avoiding divide-by-zero."""
@@ -62,27 +89,45 @@ def _l2_normalize(matrix: np.ndarray) -> np.ndarray:
 
 
 class DenseRetriever:
-    """Embedding-based retriever over a per-question paragraph set."""
+    """Embedding-based retriever over a paragraph set (per-question or pooled)."""
 
     def __init__(
         self,
         paragraphs: List[Paragraph],
         encoder: Optional[Encoder] = None,
         model_name: str = DEFAULT_MODEL_NAME,
+        cache_dir=None,
     ):
         self.paragraphs = paragraphs
-        self._encoder = encoder if encoder is not None else _build_default_encoder(model_name)
+        # The encoder is built/used lazily so a cache hit never pays for it.
+        self._encoder = encoder
+        self._model_name = model_name
 
-        # Precompute (normalized) paragraph embeddings once for this question.
-        doc_embeddings = self._encoder([p.text for p in paragraphs])
+        titles = [p.title for p in paragraphs]
+        cached = _try_load_cached_embeddings(cache_dir, titles)
+        if cached is not None:
+            self.doc_embeddings = cached
+            return
+
+        # Cache miss (or no cache configured): encode + normalize once.
+        doc_embeddings = self._encode([p.text for p in paragraphs])
         self.doc_embeddings = _l2_normalize(np.asarray(doc_embeddings, dtype=float))
+        if cache_dir is not None:
+            save_embedding_cache(cache_dir, titles, self.doc_embeddings)
+
+    def _encode(self, texts: List[str]) -> np.ndarray:
+        """All encoding goes through here; the default model is only built
+        on the first actual call (never on a warm-cache construction)."""
+        if self._encoder is None:
+            self._encoder = _build_default_encoder(self._model_name)
+        return self._encoder(texts)
 
     def retrieve(self, query: str, top_k: int = 10) -> List[Tuple[Paragraph, float]]:
         """
         Returns the top_k paragraphs ranked by cosine similarity to the
         query, highest first, as (Paragraph, score) tuples.
         """
-        query_embedding = self._encoder([query])
+        query_embedding = self._encode([query])
         query_vec = _l2_normalize(np.asarray(query_embedding, dtype=float))[0]
 
         scores = self.doc_embeddings @ query_vec
