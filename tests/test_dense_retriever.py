@@ -20,6 +20,7 @@ import numpy as np
 
 from src.data_loader import Paragraph
 from src.dense_retriever import DenseRetriever
+from src.embedding_cache import META_FILENAME
 
 
 VOCAB = ["cat", "dog", "fish", "bird"]
@@ -110,6 +111,11 @@ def test_cache_hit_skips_encoding_entirely():
             "cat", top_k=3
         )
 
+        # Embeddings stay float32 end to end (no float64 upcast in either
+        # the fresh-encode path or the cache round-trip).
+        assert first.doc_embeddings.dtype == np.float32
+        assert second.doc_embeddings.dtype == np.float32
+
 
 def test_stale_cache_for_different_corpus_is_reencoded_and_overwritten():
     """A cache dir written for one corpus must not be silently reused for a
@@ -134,6 +140,58 @@ def test_stale_cache_for_different_corpus_is_reencoded_and_overwritten():
         assert calls3["n"] == 0
 
 
+def test_cache_for_different_model_is_treated_as_miss():
+    """Same corpus, same cache dir, different model_name: the cached
+    vectors live in a different embedding space, so this must be a MISS
+    (re-encode + overwrite), never a silent reuse."""
+    with tempfile.TemporaryDirectory() as cache_dir:
+        DenseRetriever(
+            make_paragraphs(), encoder=fake_encode,
+            model_name="model-a", cache_dir=cache_dir,
+        )
+
+        # Different model over the same titles: must re-encode.
+        enc2, calls2 = make_counting_encoder()
+        DenseRetriever(
+            make_paragraphs(), encoder=enc2,
+            model_name="model-b", cache_dir=cache_dir,
+        )
+        assert calls2["n"] == 1
+
+        # The overwritten cache now serves model-b as a hit...
+        enc3, calls3 = make_counting_encoder()
+        DenseRetriever(
+            make_paragraphs(), encoder=enc3,
+            model_name="model-b", cache_dir=cache_dir,
+        )
+        assert calls3["n"] == 0
+
+        # ...and model-a no longer hits.
+        enc4, calls4 = make_counting_encoder()
+        DenseRetriever(
+            make_paragraphs(), encoder=enc4,
+            model_name="model-a", cache_dir=cache_dir,
+        )
+        assert calls4["n"] == 1
+
+
+def test_legacy_cache_without_meta_is_treated_as_miss():
+    """A cache dir from before model names were recorded (no meta.json)
+    must be re-encoded and overwritten, not trusted blindly."""
+    with tempfile.TemporaryDirectory() as cache_dir:
+        DenseRetriever(make_paragraphs(), encoder=fake_encode, cache_dir=cache_dir)
+        os.remove(os.path.join(cache_dir, META_FILENAME))
+
+        enc2, calls2 = make_counting_encoder()
+        DenseRetriever(make_paragraphs(), encoder=enc2, cache_dir=cache_dir)
+        assert calls2["n"] == 1
+
+        # The rewrite restored meta.json, so the next build is a hit again.
+        enc3, calls3 = make_counting_encoder()
+        DenseRetriever(make_paragraphs(), encoder=enc3, cache_dir=cache_dir)
+        assert calls3["n"] == 0
+
+
 def test_no_cache_dir_keeps_week1_behavior():
     """Without cache_dir, every construction encodes (Week 1 behavior)."""
     enc, calls = make_counting_encoder()
@@ -148,5 +206,7 @@ if __name__ == "__main__":
     test_retrieve_returns_paragraph_score_tuples_descending()
     test_cache_hit_skips_encoding_entirely()
     test_stale_cache_for_different_corpus_is_reencoded_and_overwritten()
+    test_cache_for_different_model_is_treated_as_miss()
+    test_legacy_cache_without_meta_is_treated_as_miss()
     test_no_cache_dir_keeps_week1_behavior()
     print("All dense_retriever tests passed.")
