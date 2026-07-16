@@ -14,14 +14,14 @@ Design choices:
     paragraphs, Week 1 default) or a pooled shared corpus (Week 2). Either
     way the index (doc_embeddings) is built ONCE at construction and reused
     for every query -- in the pooled setting that means one shared index
-    answers all 500+ questions. `retrieve_many` (Week 2 A4) exploits this:
+    answers all 500+ questions. `retrieve_many` exploits this:
     it batch-encodes all queries in a single encoder call and scores them
     with one matrix multiply, which is markedly faster than looping
     `retrieve` per query when the real model is loaded.
   - Model: sentence-transformers/all-MiniLM-L6-v2, per the project plan.
   - Similarity: cosine similarity, computed as a dot product of
     L2-normalized embeddings.
-  - Embedding cache (Week 2 A3): pass `cache_dir` to persist the
+  - Embedding cache: pass `cache_dir` to persist the
     (normalized) document embedding matrix + title list via
     embedding_cache.py. On a warm cache that matches this corpus, the
     encoder is not called at all during construction -- for the real
@@ -185,7 +185,7 @@ class DenseRetriever:
     def retrieve_many(
         self, queries: List[str], top_k: int = 10
     ) -> List[List[Tuple[Paragraph, float]]]:
-        """Pooled-setting batch query (Week 2 A4): score MANY queries against
+        """Pooled-setting batch query: score MANY queries against
         the one shared index in a single pass and return, for each query, its
         top_k (Paragraph, score) tuples.
 

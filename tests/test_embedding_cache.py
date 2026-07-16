@@ -1,22 +1,22 @@
 """
 test_embedding_cache.py
 
-Tests the Week 2 A1 cache-WRITE step: saving an embedding matrix (.npy)
+Tests the cache-WRITE step: saving an embedding matrix (.npy)
 plus its same-order title list plus the producing model's name to disk.
 Completion criterion: after saving, reloading from disk gives back a
 matrix and title list identical to the originals.
 
-Also tests the A2 cache-LOAD step: load_embedding_cache() must return
+Also tests the cache-LOAD step: load_embedding_cache() must return
 exactly what was saved (normal path) and raise a clear ValueError when the
 title list and matrix row count disagree (corrupted / half-updated cache).
 
-Cache identity hardening (post-A3 review): meta.json records which model
+Cache identity hardening: meta.json records which model
 produced the matrix (missing meta.json -> FileNotFoundError, so legacy
 caches are rejected rather than trusted), and the matrix dtype is
 preserved as saved (float32 stays float32 -- no silent float64 upcast).
 
 Fully offline: no encoder or model involved -- the cache layer only deals
-with an already-computed matrix and a list of titles. The A1 round-trip
+with an already-computed matrix and a list of titles. The round-trip
 test below reloads with raw np.load / json.load on purpose, so it verifies
 the on-disk format itself independently of the loader.
 """

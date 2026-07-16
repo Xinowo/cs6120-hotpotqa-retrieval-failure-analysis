@@ -46,8 +46,8 @@ def make_paragraphs():
 
 def make_counting_encoder():
     """Wraps fake_encode with a call counter, so tests can assert exactly
-    how many times the retriever actually invoked the encoder (Week 2 A3:
-    a cache hit must mean ZERO encoder calls at construction time)."""
+    how many times the retriever actually invoked the encoder (a cache
+    hit must mean ZERO encoder calls at construction time)."""
     calls = {"n": 0}
 
     def counting_encode(texts):
@@ -104,7 +104,7 @@ def make_pooled_paragraphs():
 
 
 def test_pooled_index_serves_multiple_queries_correctly():
-    """Week 2 A4 completion criterion: build the shared index ONCE, then
+    """Completion criterion: build the shared index ONCE, then
     fire several different queries at it -- each must rank correctly."""
     retriever = DenseRetriever(make_pooled_paragraphs(), encoder=fake_encode)
 
@@ -159,7 +159,7 @@ def test_retrieve_many_titles_matches_retrieve_many():
 
 
 def test_cache_hit_skips_encoding_entirely():
-    """Week 2 A3 completion criterion: building a second retriever over the
+    """Completion criterion: building a second retriever over the
     same corpus with the same cache dir must make ZERO encoder calls."""
     with tempfile.TemporaryDirectory() as cache_dir:
         # First build: cold cache, encoder must run (once, for the docs).

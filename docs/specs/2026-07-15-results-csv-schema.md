@@ -1,7 +1,7 @@
-# Results CSV Schema (Week 2 B1)
+# Results CSV Schema
 
 **Author:** Xin · **Date:** 2026-07-15 · **Status:** Final (2026-07-15) — open questions resolved below; content verified against `evaluator.py` / `data_loader.py`
-**Applies to:** `results/dense_results.csv` (Xin), `results/bm25_results.csv` (Jiajun), later `results/rerank_results.csv` (Week 3 R3/R4)
+**Applies to:** `results/dense_results.csv` (Xin), `results/bm25_results.csv` (Jiajun), later `results/rerank_results.csv` (Week 3 reranker)
 
 ## Goal
 
@@ -26,7 +26,7 @@ Week 1's debug CSV was wide (one `bm25_*` and one `dense_*` column group side by
 | 5 | `level` | str | `easy` \| `medium` \| `hard` | from `HotpotExample.level`; free extra grouping dimension |
 | 6 | `question` | str | raw question text | kept for human inspection of failure rows |
 | 7 | `gold_titles` | str | titles joined by `" | "` | same convention as Week 1 CSVs |
-| 8 | `retrieved_titles` | str | top-10 ranked titles joined by `" | "` | enough to recompute any metric at k ≤ 10; full top-50 lives in the separate B7/B8 export, not here |
+| 8 | `retrieved_titles` | str | top-10 ranked titles joined by `" | "` | enough to recompute any metric at k ≤ 10; full top-50 lives in the separate top-50 export, not here |
 | 9 | `any_evidence_recall@2` | int | `1` \| `0` | |
 | 10 | `any_evidence_recall@5` | int | `1` \| `0` | |
 | 11 | `any_evidence_recall@10` | int | `1` \| `0` \| empty | empty for `per_question` rows (see K policy) |
@@ -44,8 +44,8 @@ Metric column naming is `<metric_name>@<k>`, matching `evaluate_example()` outpu
 ## What is deliberately NOT in this CSV
 
 - **Aggregate rows** (averages) — different grain; the table script computes them by grouping on `method` + `setting` (+ `question_type`).
-- **Run metadata** (n, split, model name, runtime, git commit) — goes in the run's sidecar config/notes (formalized later by Week 3 F1a's `results/runs/<run_id>/config.json`); runtime also goes into notes per plan B3.
-- **Scores** — top-50 export (B7/B8) carries `title` + `score`; this file only needs ranked titles for recall metrics.
+- **Run metadata** (n, split, model name, runtime, git commit) — goes in the run's sidecar config/notes (formalized later by the failure-review runner's `results/runs/<run_id>/config.json`); runtime also goes into the run notes.
+- **Scores** — the top-50 export carries `title` + `score`; this file only needs ranked titles for recall metrics.
 
 ## Resolved questions (2026-07-15)
 

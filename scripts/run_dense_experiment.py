@@ -1,5 +1,5 @@
 """
-run_dense_experiment.py  (Week 2 B2 -- the formal dense runner)
+run_dense_experiment.py  (the formal dense runner)
 
 Turns the Week 1 debug script into the real experiment runner: it produces
 `results/dense_results.csv` in the finalized long-format schema
@@ -11,9 +11,9 @@ Pipeline (unchanged from Week 1, just re-shaped to the schema):
     HotpotQA example -> per-question paragraph corpus -> DenseRetriever
         -> top-10 titles -> Any Evidence Recall@k (evaluator.py)
 
-B2 scope is the **per_question** path only (one small corpus per question,
+Scope here is the **per_question** path only (one small corpus per question,
 each re-embedded, exactly like Week 1). The `pooled` path needs the shared
-pooled corpus from data_loader.py (Jiajun) and lands in B5/B6 -- asking for
+pooled corpus from data_loader.py (Jiajun) and is deferred -- asking for
 it here raises a clear NotImplementedError rather than producing wrong rows.
 
 This runner only *calls* evaluator.py (evaluate_example / aggregate_results);
@@ -138,8 +138,9 @@ def _warm_encoder(examples):
 def main(n, split, setting, k, out_path):
     if setting == "pooled":
         raise NotImplementedError(
-            "The pooled setting is B5/B6 -- it needs the shared pooled corpus "
-            "from data_loader.py (Jiajun). B2 implements per_question only."
+            "The pooled setting is not implemented yet -- it needs the shared "
+            "pooled corpus from data_loader.py (Jiajun). This runner implements "
+            "per_question only."
         )
     if setting != "per_question":
         raise ValueError(f"Unknown setting: {setting!r}")
@@ -172,7 +173,7 @@ def main(n, split, setting, k, out_path):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Week 2 B2 dense runner: HotpotQA -> dense retrieval -> "
+        description="Dense runner: HotpotQA -> dense retrieval -> "
         "Any Evidence Recall@k, written in the long-format results schema."
     )
     parser.add_argument("--n", type=int, default=100, help="Number of examples to load")
@@ -181,7 +182,7 @@ if __name__ == "__main__":
         type=str,
         default="per_question",
         choices=["per_question", "pooled"],
-        help="Corpus setting (B2 implements per_question; pooled is B5/B6)",
+        help="Corpus setting (per_question implemented; pooled deferred)",
     )
     parser.add_argument("--split", type=str, default="validation", help="HotpotQA split")
     parser.add_argument(
