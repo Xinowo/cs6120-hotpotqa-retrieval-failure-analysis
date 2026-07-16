@@ -46,10 +46,26 @@ def load_raw_hotpotqa(split: str = "validation", n: Optional[int] = None):
            so validation is the standard dev/eval split to use here).
     n: if set, only load the first n examples (useful for the Week 1
        10-example debug subset).
+
+    `trust_remote_code` compatibility: HotpotQA used to ship as a Hub loading
+    script, so older `datasets` (< 3.0) REQUIRE `trust_remote_code=True` to run
+    it. Newer `datasets` (3.x / 4.x) serve it as Parquet, execute no remote
+    code, and treat `trust_remote_code` as removed -- passing it prints a
+    deprecation warning (4.x) or would raise. So we try the modern no-arg call
+    first and only fall back to the legacy arg when the failure is specifically
+    about trust_remote_code; any other error (bad split, no network) propagates
+    unchanged. This keeps one code path working across the pinned version range.
     """
     from datasets import load_dataset
 
-    ds = load_dataset("hotpot_qa", "distractor", split=split, trust_remote_code=True)
+    try:
+        ds = load_dataset("hotpot_qa", "distractor", split=split)
+    except (ValueError, TypeError) as err:
+        if "trust_remote_code" not in str(err):
+            raise  # a real error (unknown split, etc.), not the compat shim
+        ds = load_dataset(
+            "hotpot_qa", "distractor", split=split, trust_remote_code=True
+        )
     if n is not None:
         ds = ds.select(range(min(n, len(ds))))
     return ds

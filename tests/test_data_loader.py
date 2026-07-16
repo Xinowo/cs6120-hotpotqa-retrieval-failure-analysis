@@ -10,7 +10,10 @@ import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from src.data_loader import process_example, Paragraph
+import datasets
+import pytest
+
+from src.data_loader import process_example, load_raw_hotpotqa, Paragraph
 
 
 def make_fake_raw_example():
@@ -60,6 +63,99 @@ def test_process_example_extracts_gold_titles():
     assert example.gold_titles == {"Company X", "Jane Doe"}
     # The distractor paragraph should NOT be in the gold set
     assert "Unrelated Topic" not in example.gold_titles
+
+
+# ---------------------------------------------------------------------------
+# trust_remote_code compatibility shim (load_raw_hotpotqa)
+#
+# These patch `datasets.load_dataset` so no network / real download happens.
+# load_raw_hotpotqa does `from datasets import load_dataset` at call time, so
+# it resolves the patched attribute off the datasets module each call.
+# ---------------------------------------------------------------------------
+
+
+class _FakeDS:
+    """Minimal stand-in for a datasets.Dataset: just len + select, enough for
+    load_raw_hotpotqa's n-slicing."""
+
+    def __init__(self, rows):
+        self.rows = rows
+
+    def __len__(self):
+        return len(self.rows)
+
+    def select(self, indices):
+        return _FakeDS([self.rows[i] for i in indices])
+
+
+def _install_fake_load_dataset(monkeypatch, behavior):
+    """Replace datasets.load_dataset with a spy that records each call's kwargs
+    and delegates the return/raise decision to `behavior(kwargs)`."""
+    calls = []
+
+    def fake_load_dataset(*args, **kwargs):
+        calls.append(kwargs)
+        return behavior(kwargs)
+
+    monkeypatch.setattr(datasets, "load_dataset", fake_load_dataset)
+    return calls
+
+
+def test_modern_datasets_path_passes_no_trust_remote_code(monkeypatch):
+    # Newer datasets: the plain call succeeds; the shim must NOT pass the arg.
+    rows = [{"i": i} for i in range(5)]
+    calls = _install_fake_load_dataset(monkeypatch, lambda kwargs: _FakeDS(rows))
+
+    ds = load_raw_hotpotqa(split="validation")
+
+    assert len(ds) == 5
+    assert len(calls) == 1
+    assert "trust_remote_code" not in calls[0]
+
+
+def test_legacy_datasets_path_retries_with_trust_remote_code(monkeypatch):
+    # Older datasets: the plain call raises asking for trust_remote_code; the
+    # shim must retry WITH trust_remote_code=True and succeed.
+    rows = [{"i": i} for i in range(3)]
+
+    def behavior(kwargs):
+        if "trust_remote_code" not in kwargs:
+            raise ValueError(
+                "Loading this dataset requires you to pass trust_remote_code=True"
+            )
+        return _FakeDS(rows)
+
+    calls = _install_fake_load_dataset(monkeypatch, behavior)
+
+    ds = load_raw_hotpotqa(split="validation")
+
+    assert len(ds) == 3
+    assert len(calls) == 2
+    assert "trust_remote_code" not in calls[0]
+    assert calls[1]["trust_remote_code"] is True
+
+
+def test_unrelated_error_is_not_retried(monkeypatch):
+    # A real error (e.g. bad split) must propagate immediately, not trigger the
+    # trust_remote_code retry.
+    def behavior(kwargs):
+        raise ValueError("Unknown split 'nope'.")
+
+    calls = _install_fake_load_dataset(monkeypatch, behavior)
+
+    with pytest.raises(ValueError, match="Unknown split"):
+        load_raw_hotpotqa(split="nope")
+
+    assert len(calls) == 1  # no retry
+
+
+def test_n_slicing_selects_first_n(monkeypatch):
+    rows = [{"i": i} for i in range(10)]
+    _install_fake_load_dataset(monkeypatch, lambda kwargs: _FakeDS(rows))
+
+    ds = load_raw_hotpotqa(split="validation", n=4)
+
+    assert [r["i"] for r in ds.rows] == [0, 1, 2, 3]
 
 
 if __name__ == "__main__":
