@@ -1,4 +1,6 @@
-datasets>=2.19.0
+# Upper bound: the hotpot_qa loader shim in data_loader.py is tested through
+# the 4.x line; 5.0 may change the loading API again, so re-verify before bumping.
+datasets>=2.19.0,<5
 rank-bm25>=0.2.2
 sentence-transformers>=2.7.0
 pandas>=2.0.0
