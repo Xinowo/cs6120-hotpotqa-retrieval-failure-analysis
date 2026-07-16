@@ -161,6 +161,99 @@ No core metric logic or failure-analysis rules involved. Explanation Test additi
 
 ---
 
+## Session 7/15 (d) — A1–A4 acceptance check + B1 (results CSV schema draft)
+
+### What was done
+
+**Acceptance check of the personal plan:** all Week 2 A-group markers verified against the repo — each task's completion criterion mapped to a passing test (A1/A2 in `test_embedding_cache.py`, A3/A4 in `test_dense_retriever.py`), full suite re-run (26 passed), commits `44e03d1` / `9ed31ef` / `45ed65c` confirmed. One stale marker found and fixed: the plan's Week 2 section header still said "not started".
+
+**B1 — results CSV schema draft (`docs/specs/2026-07-15-results-csv-schema-draft.md`, new):**
+Long format, one row per (method, setting, example); columns `method` / `setting` / `example_id` / `question_type` / `level` / `question` / `gold_titles` / `retrieved_titles` (top-10, `" | "`-joined) + `any_evidence_recall@{2,5,10}`. Encodes the agreed k policy (pooled reports k = 2/5/10; per_question reports k = 2 only, `@5`/`@10` left empty). Metric columns named after `evaluate_example()` keys so future metrics (full/partial evidence recall) append without renames. Run metadata (n, split, runtime, git commit) deliberately excluded — belongs to the future F1a run sidecar. Five open questions listed for Jiajun (empty-vs-computed per-question metrics, file-per-method vs combined, keep `level`, separator, bool encoding). **Draft not yet sent to Jiajun — B1 stays 🔄 until confirmed.** *(Superseded later the same day — see session (e): questions resolved, spec finalized and renamed to `2026-07-15-results-csv-schema.md`.)*
+
+### Files touched
+
+| File | Type | Note |
+|---|---|---|
+| `docs/specs/2026-07-15-results-csv-schema-draft.md` | new | B1 schema draft for Jiajun's review (renamed to `2026-07-15-results-csv-schema.md` at finalization, session (e)) |
+| `docs/Plans/Xin_Implementation_Plan.md` | modified | Week 2 header ⬜→🔄; B1 ⬜→🔄 with draft link; pointer updated |
+| this log | modified | this entry |
+
+### AI Usage this session
+
+Tool: **Claude Code** (agent session, 7/15).
+
+| Component | AI involvement | Policy category |
+|---|---|---|
+| Plan acceptance check (criteria-to-test mapping, test run, marker audit) | Performed by Claude Code; findings reported, one-line fix applied at Xin's request | Plan bookkeeping / review — agent-allowed |
+| B1 schema draft | Drafted by Claude Code (long-format design, k-policy encoding, open-questions list), grounded in `evaluator.py` / `data_loader.py` / Week 1 CSVs; to be reviewed by Xin before sending | Result CSV format / plumbing — agent-allowed |
+| Plan/log bookkeeping | Written by Claude Code at Xin's direction | Plan bookkeeping — agent-allowed |
+
+No core metric logic or failure-analysis rules involved — the schema only names columns after existing `evaluator.py` outputs; it defines no metric semantics.
+
+---
+
+## Session 7/15 (e) — B1 open questions resolved, schema finalized
+
+### What was done
+
+**Open-question resolution:** Claude Code answered the five open questions from a reviewer/best-practice standpoint (leave n/a cells empty rather than compute-and-filter; one file per method; keep `level` with a skewed-distribution caveat; keep `" | "` — MediaWiki forbids `|` in page titles, so it is strictly collision-free; switch booleans to `1`/`0` because `True`/`False` strings read back as truthy object dtype and `1`/`0` makes `mean()` yield recall directly). Xin overrode Q1 in part: per-question `@5` **is** computed (near ceiling but still informative); only `@10` stays empty. Table reporting is unchanged from the joint plan (per-question tables report k = 2 only; stored `@5` is analysis-only).
+
+**Spec finalized (`docs/specs/2026-07-15-results-csv-schema.md`, renamed from `...-schema-draft.md`):** Claude Code applied the resolutions to the spec (K policy rewrite, `1`/`0` encoding + rationale, "Resolved questions" section, placeholder annotation on the pooled example row). Xin then verified content against `evaluator.py` / `data_loader.py`, added the table-reporting clarification, set status to Final, and renamed the file. Decision recorded in the plan: finalize without waiting for a sign-off round; CC Jiajun on the final spec.
+
+### Files touched
+
+| File | Type | Note |
+|---|---|---|
+| `docs/specs/2026-07-15-results-csv-schema.md` | renamed + modified | B1 spec finalized (resolutions applied, status Final) |
+| `docs/Plans/Xin_Implementation_Plan.md` | modified | B1 🔄→✅ with final spec link; pointer moved to B2 |
+| this log | modified | this entry + rename annotations in session (d) |
+
+### AI Usage this session
+
+Tool: **Claude Code** (agent session, 7/15).
+
+| Component | AI involvement | Policy category |
+|---|---|---|
+| Open-question answers | Proposed by Claude Code (best-practice rationale per question); final decisions made by Xin (incl. overriding Q1 to compute `@5`) | Result CSV format / plumbing — agent-allowed |
+| Spec edits | Applied by Claude Code per Xin's decisions; verified and finalized by Xin | Result CSV format / plumbing — agent-allowed |
+| Log bookkeeping | Written by Claude Code at Xin's direction | Plan bookkeeping — agent-allowed |
+
+No core metric logic or failure-analysis rules involved — decisions concern CSV encoding and file layout only.
+
+---
+
+## Session 7/15 (f) — Finalized-spec review + cross-doc spec references
+
+### What was done
+
+**Review of the finalized B1 spec** (requested by Xin): all five resolutions checked against their factual claims — the joint plan's "Reporting rule for tables" section exists and is correctly cited; the MediaWiki `|`-in-titles claim is true; the `1`/`0` rationale holds. One real defect found and fixed: the first example row was invalid CSV — its `retrieved_titles` contains `Woodson, Arkansas` but the field was unquoted, contradicting the spec's own quoting note directly below. Fixed by quoting the field and rewording the note; also tightened the dtype claim (int64 for fully-filled columns, float64+NaN only where empties exist).
+
+**Cross-doc spec references (joint plan):** audit found the two `docs/specs/` documents were unevenly referenced in `CS6120_Final_Project_Weekly_Todo_Plan.md` — the failure-review design was linked in Xin's Week 3 task but only cited as "design doc §6.1" (no path) in the shared taxonomy task, and the results-CSV schema was referenced nowhere. Since Jiajun's coding agent works from the joint plan, explicit paths were added: BM25 CSV task (Week 2 Jiajun) now instructs agents to read the schema spec before writing any results CSV; dense CSV task (Week 2 Xin) mirrors it; the standardize-format shared task records the schema as finalized with the spec path; the Week 3 annotation-CSV mention now carries the design doc's full path.
+
+**B2 comparison caliber** recorded in the personal plan's B2 criterion: "reproduce Week 1's numbers" means equal @2/@5 **values**; byte-identical CSVs are not expected (new schema uses `1`/`0` and omits per-question `@10`).
+
+### Files touched
+
+| File | Type | Note |
+|---|---|---|
+| `docs/specs/2026-07-15-results-csv-schema.md` | modified | example row properly quoted; quoting note reworded; dtype claim precise |
+| `docs/Plans/CS6120_Final_Project_Weekly_Todo_Plan.md` | modified | 4 explicit spec-path references added (BM25 CSV, dense CSV, standardize-format status, annotations schema) |
+| `docs/Plans/Xin_Implementation_Plan.md` | modified | B2 criterion clarified (value-level comparison at @2/@5) |
+| this log | modified | this entry |
+
+### AI Usage this session
+
+Tool: **Claude Code** (agent session, 7/15).
+
+| Component | AI involvement | Policy category |
+|---|---|---|
+| Spec review (fact-checking resolutions, CSV-validity check) | Performed by Claude Code; findings reported to Xin, fixes applied at Xin's request | Review of result-CSV format docs — agent-allowed |
+| Joint-plan reference audit + edits | Performed/applied by Claude Code at Xin's direction | Plan bookkeeping — agent-allowed |
+
+No core metric logic or failure-analysis rules involved.
+
+---
+
 ## Remaining Week 2 tasks
 
-B1–B8 (runner + batch runs; B5/B6/B8 wait on Jiajun's pooled corpus), C1–C2 (observation notes). See the plan for dependencies.
+B2–B8 (runner + batch runs; B5/B6/B8 wait on Jiajun's pooled corpus), C1–C2 (observation notes). See the plan for dependencies.
