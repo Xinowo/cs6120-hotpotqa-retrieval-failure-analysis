@@ -1,10 +1,14 @@
 # Local-only docs (personal notes / already-distributed material / Chinese-language files).
 # Everything else under docs/ IS tracked and shared with Teammate:
-#   docs/Plans/ joint plan + scope + idea docs, docs/Completion_Log/ (AI Usage Declaration source).
+#   docs/Plans/ joint plan + scope + idea docs.
+# Note: Xin's own completion logs are kept local-only (docs/Completion_Log/Xin_*);
+#   the folder itself stays shared (README.md) for teammates' own logs.
 docs/concepts/
+docs/analysis/
 docs/From_Professor/
 docs/Plans/proposal.md
 docs/Plans/Xin_Implementation_Plan.md
+docs/Completion_Log/Xin_*
 docs/Weekly_Progress_to_be_submitted/
 docs/specs/*.zh.md
 .claude
