@@ -3,7 +3,7 @@
 - Date: 2026-07-12
 - Status: finalized after discussion with Xin, pending implementation
 - Revision: 2026-07-13, four additions after review — annotation import/restore, `git_commit` and `corpus_setting` added to config.json, `annotator`/`annotated_at` columns added to annotations.csv
-- Related plan tasks: Xin_Implementation_Plan C1 (observation notes), F1 (failure-case filtering script; originally planned for Week 3, this design pulls it earlier and expands it)
+- Related work: the observation notes and the failure-case filtering script (originally planned for Week 3; this design pulls it earlier and expands it)
 
 ## 1. Background and pain points
 
@@ -89,7 +89,7 @@ Core principle: **Python computes, HTML only displays.** All evaluation quantiti
 
 `scripts/build_failure_report.py --run <run_id> [--retriever dense --k 2]`:
 
-- Default filtering rule: a question qualifies if any retriever misses at any k ∈ {2,5,10}; parameters can narrow it (e.g. only dense miss@2, which corresponds to the original F1 task).
+- Default filtering rule: a question qualifies if any retriever misses at any k ∈ {2,5,10}; parameters can narrow it (e.g. only dense miss@2, the original failure-case filtering task).
 - **Card granularity = one failure unit (example_id, retriever)**: if a retriever misses at least one k on a question, a card is generated for it (the card header lists all the k values it misses; on export, k takes the smallest of them). If both retrievers fail on the same question, each gets its own card. Inside a card, both retrievers' top-k are still shown side by side for comparison, but label/notes belong to the retriever the card is for.
 - Produces a **self-contained single-file HTML** (data embedded as JSON, opens on double-click, no network, no dependencies).
 - One card per failure, containing:
@@ -121,7 +121,7 @@ After export, a human places the file into `results/annotations/` and commits it
 
 ### 6.2 Handoff to Week 3
 
-- `annotations.csv` is the carrier for F3–F6 manual annotation and the `failure_analyzer.py` validation set;
+- `annotations.csv` is the carrier for the manual failure annotation and the `failure_analyzer.py` validation set;
 - after the taxonomy converges, add a small script or one manual pass to map free-form labels to the final categories (a new column or a new file; original labels are kept);
 - case snippets for the report / slides are generated as markdown by a script from `details.jsonl` + `annotations.csv`, not copied out of the HTML.
 
@@ -139,7 +139,7 @@ Convention: if the HTML page ever needs any "value computed from the ranked list
 
 ## 8. Plan synchronization
 
-This design pulls F1 earlier and expands its task content, which counts as a task-content change, so per convention it must be **synchronized across both** `docs/Plans/Xin_Implementation_Plan.md` and the joint `CS6120_Final_Project_Weekly_Todo_Plan.md`. (Relation between C1's observation-notes file and this pipeline: dense_observations.md continues as narrative notes, while structured annotation is owned by annotations.csv — the two complement each other.)
+This design pulls the failure-case filtering work earlier and expands its content, which counts as a task-content change, so per convention it must be **synchronized across both** the personal implementation plan and the joint `CS6120_Final_Project_Weekly_Todo_Plan.md`. (Relation between the observation-notes file and this pipeline: dense_observations.md continues as narrative notes, while structured annotation is owned by annotations.csv — the two complement each other.)
 
 ## 9. Testing and acceptance
 

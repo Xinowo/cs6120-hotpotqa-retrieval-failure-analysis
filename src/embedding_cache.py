@@ -16,7 +16,7 @@ Cache layout -- one directory holding three files that MUST stay in sync:
 The row/title alignment is the whole contract: retrieval returns row
 indices, and titles.json is how those indices map back to paragraph
 titles for evaluation. That is why save refuses mismatched lengths up
-front, and why load-time validation (task A2) re-checks it.
+front, and why load-time validation re-checks it.
 
 meta.json guards the other half of the cache's identity: the same titles
 encoded by a DIFFERENT model are different vectors, so a cache is only

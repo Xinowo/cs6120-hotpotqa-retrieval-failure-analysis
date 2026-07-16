@@ -1,7 +1,7 @@
 """
 test_run_dense_experiment.py
 
-Offline tests for the Week 2 B2 dense runner (scripts/run_dense_experiment.py).
+Offline tests for the dense runner (scripts/run_dense_experiment.py).
 They exercise the schema-shaping logic -- column set/order, the K policy
 (per_question fills @2/@5, leaves @10 empty), the 1/0 boolean encoding, and
 the pooled guard -- WITHOUT downloading a model or HotpotQA: a tiny fake
