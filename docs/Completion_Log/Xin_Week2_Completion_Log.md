@@ -374,7 +374,79 @@ No core metric logic or failure-analysis rules involved. Explanation Test note: 
 
 ---
 
+## Session 7/16 (c) — B3 + B4 (per_question batch runs, formal `dense_results.csv`)
+
+### What was run
+
+The formal per_question batch runs on real data (validation split), producing
+`results/dense_results.csv`. No code changes this session — pure invocation of the
+B2 runner + result verification.
+
+**Exact commands (reuse verbatim to re-run):**
+```bash
+# B3: 100 examples
+python scripts/run_dense_experiment.py --n 100 --setting per_question --out results/dense_results.csv
+# B4: 500 examples (supersedes B3 as the formal file)
+python scripts/run_dense_experiment.py --n 500 --setting per_question --out results/dense_results.csv
+```
+
+`load_examples` takes the **first** n (deterministic, `ds.select(range(n))` —
+`data_loader.py:70`), so B4's first 100 examples are exactly B3's; both runs are
+deterministic → B4 ⊇ B3.
+
+### Results
+
+| Run | n | @2 | @5 | runtime | rows | bridge / comparison |
+|---|---|---|---|---|---|---|
+| B3 | 100 | 0.910 | 1.000 | 43 s | 100 | 79 / 21 |
+| B4 | 500 | 0.900 | 0.982 | 159 s | 500 | 404 / 96 |
+
+`@10` left empty per the K policy (per_question). Runtime ≈ linear (~0.32 s/example
+after one-time model load).
+
+### Verification
+
+- CSV shape: 501 lines (500 rows + header), schema columns exact.
+- **Superset check:** before B4, the B3 file was backed up to scratch; after B4,
+  `head -101 dense_results.csv | diff - backup` produced **no output** — the first
+  100 rows are byte-identical to B3, confirming B4 is a strict superset (overwrite
+  loses nothing). Backup deleted after the check.
+
+### Observations (seed for Week 3 failure analysis / C-group)
+
+- @2 stable across 100→500 (0.910→0.900): ~10% of questions miss all gold in top-2
+  even on the tiny ~10-paragraph per-question corpus — natural F-group candidate pool.
+- @5 = 0.982 on 500 → **9 questions** miss all gold even in top-5 on a ~10-paragraph
+  corpus. These are the hardest per_question failures (likely lexical+semantic mismatch
+  or gold-matching issues) and should be the first cases pulled once C1 exists.
+
+### Files touched
+
+| File | Type | Note |
+|---|---|---|
+| `results/dense_results.csv` | new (real) | 500-row formal per_question results (B4; supersedes the B3 write) |
+| `docs/Plans/Xin_Implementation_Plan.md` | modified | B3, B4 → ✅; 📍 pointer → B7 / C1 |
+| this log | modified | this entry |
+
+### AI Usage this session
+
+Tool: **Claude Code** (agent session, 7/16).
+
+| Component | AI involvement | Policy category |
+|---|---|---|
+| Running the B2 runner (B3, B4) + CSV/superset verification | Executed by Claude Code at Xin's request; commands + results reported | Batch-run execution / result plumbing — agent-allowed |
+| Plan/log bookkeeping | Written by Claude Code at Xin's direction | Bookkeeping — agent-allowed |
+
+No core metric logic or failure-analysis rules involved — the runner only calls the
+hand-written `evaluator.py`. Explanation Test note: Xin should be able to explain why
+metrics at k≤10 can be recomputed from the stored `retrieved_titles` without re-running
+retrieval (the CSV stores the top-10 ranked titles + gold_titles — enough for
+Full/Partial Recall@k and MRR when gold is within top-10), and why a deeper-rank metric
+would instead require a larger `--k` re-run.
+
+---
+
 ## Remaining Week 2 tasks
 
-B3–B8 (batch runs; B5/B6/B8 wait on Jiajun's pooled corpus), C1–C2 (observation notes).
-See the plan for dependencies.
+B7 (top-50 export, offline, no wait), C1–C2 (observation notes); B5/B6/B8 wait on
+Jiajun's pooled corpus. See the plan for dependencies.
