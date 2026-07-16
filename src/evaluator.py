@@ -10,7 +10,7 @@ required evidence was found. Full Evidence Recall@k and Partial Evidence
 Recall@k (Week 2 scope) will check that.
 """
 
-from typing import List, Set, Dict
+from typing import List, Set, Dict, Optional
 
 
 def any_evidence_recall_at_k(
@@ -66,3 +66,33 @@ def aggregate_results(per_example_results: List[Dict[str, bool]]) -> Dict[str, f
         metric: sum(int(r[metric]) for r in per_example_results) / n
         for metric in metric_names
     }
+
+
+def gold_ranks(
+    retrieved_titles: List[str],
+    gold_titles: Set[str],
+) -> Dict[str, Optional[int]]:
+    """
+    Returns the 1-based rank of each gold title in the ranked retrieved
+    titles (rank 1 = first / highest-scored), or None if it was not
+    retrieved. If a gold appears more than once, its first occurrence is used.
+
+    The output always has exactly gold_titles as keys: a gold that was not
+    retrieved maps to None, never omitted. No cutoff is applied -- absence
+    from retrieved_titles is what means "not in top_k_max".
+
+    retrieved_titles: ranked titles, highest-scored first (same list passed
+                       to any_evidence_recall_at_k)
+    gold_titles: the gold evidence titles for this question
+    """
+
+    ranks = {
+        gold_title: None for gold_title in gold_titles
+    }
+
+    for i, title in enumerate(retrieved_titles):
+        if title in gold_titles and ranks[title] is None:
+            ranks[title] = i + 1
+
+    return ranks
+
