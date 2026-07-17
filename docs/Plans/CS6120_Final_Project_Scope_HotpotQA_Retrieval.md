@@ -271,7 +271,7 @@ A reranker damage happens when:
 
 #### Important Warning
 
-The reranker cannot recover evidence that was never included in the first-stage retrieved candidate set. If the dense retriever does not retrieve a gold passage in top-N, the reranker cannot see it. In the pooled setting this makes the candidate depth N = 50 part of the experimental design; report dense Recall@50 alongside the reranked results so readers can see the reranker's ceiling.
+The reranker cannot recover evidence that was never included in the first-stage retrieved candidate set. If the dense retriever does not retrieve a gold passage in top-N, the reranker cannot see it. In the pooled setting this makes the candidate depth N = 50 part of the experimental design. Record whether each gold enters the dense top-50 and its exact saved rank so readers can see the reranker's candidate ceiling; Recall@50 is not added to the primary metric set.
 
 ---
 
@@ -306,7 +306,7 @@ AI-policy note: the training-pair construction and training loop are core algori
 
 ## 8. Core Metrics
 
-**AI-policy boundary for the evaluator.** The course AI policy singles out evaluation-heavy projects: the evaluation methodology and error analysis must remain the team's work. Because the evidence coverage metrics below (Full/Partial Evidence Recall, Any Evidence Recall, MRR) are part of this project's core intellectual contribution, the metric definitions and their core computation logic in `evaluator.py` must be hand-written by team members. Coding agents may generate only the surrounding infrastructure (CSV output, experiment runner, argument parsing, logging). This boundary must be stated in the AI Usage Declaration.
+**AI-policy boundary for the evaluator.** The course AI policy singles out evaluation-heavy projects: the evaluation methodology and error analysis must remain the team's work. Because the evidence coverage metrics below (Full/Partial Evidence Recall, Any Evidence Recall, MRR@10/MRR@50) are part of this project's core intellectual contribution, the metric definitions and their core computation logic in `evaluator.py` must be hand-written by team members. Coding agents may generate only the surrounding infrastructure (CSV output, experiment runner, argument parsing, logging). This boundary must be stated in the AI Usage Declaration.
 
 Report all metrics at:
 
@@ -338,13 +338,20 @@ Whether some, but not all, required mapped gold evidence paragraphs appear in th
 
 This captures cases where the retriever is partially successful, such as finding the first hop but missing the second hop.
 
-### 8.4 MRR
+### 8.4 MRR@10 and MRR@50
 
 Mean Reciprocal Rank measures how highly the first mapped gold evidence paragraph appears in the ranking.
 
 It answers:
 
 > If the method finds at least one mapped gold evidence paragraph, how early does it appear?
+
+The pooled protocol stores top-50 for every method. Report **MRR@10 as the
+primary ranking metric** and **MRR@50 as a deep-ranking diagnostic**. This
+preserves the original top-10 comparison while distinguishing a true top-50
+miss from a gold passage that falls at rank 11–50. Per-example result columns
+are named `reciprocal_rank_at_10` and `reciprocal_rank_at_50`; only their
+dataset means are called MRR.
 
 ---
 
@@ -360,22 +367,22 @@ Include the following result tables.
 
 Report this table separately for the pooled corpus (primary) and the per-question distractor setting (contrast; omit the k = 10 columns there).
 
-| Method | Any Evidence Recall@2 | Any Evidence Recall@5 | Any Evidence Recall@10 | Full Evidence Recall@2 | Full Evidence Recall@5 | Full Evidence Recall@10 | Partial Evidence Recall@5 | MRR |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| BM25 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| Dense | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| Dense + Rerank | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| Method | Any Evidence Recall@2 | Any Evidence Recall@5 | Any Evidence Recall@10 | Full Evidence Recall@2 | Full Evidence Recall@5 | Full Evidence Recall@10 | Partial Evidence Recall@5 | MRR@10 | MRR@50 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| BM25 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| Dense | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| Dense + Rerank | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
 
 #### Bridge vs Comparison Table
 
-| Method | Type | Any Evidence Recall@5 | Full Evidence Recall@5 | Partial Evidence Recall@5 | MRR |
-|---|---|---:|---:|---:|---:|
-| BM25 | Bridge | TBD | TBD | TBD | TBD |
-| BM25 | Comparison | TBD | TBD | TBD | TBD |
-| Dense | Bridge | TBD | TBD | TBD | TBD |
-| Dense | Comparison | TBD | TBD | TBD | TBD |
-| Dense + Rerank | Bridge | TBD | TBD | TBD | TBD |
-| Dense + Rerank | Comparison | TBD | TBD | TBD | TBD |
+| Method | Type | Any Evidence Recall@5 | Full Evidence Recall@5 | Partial Evidence Recall@5 | MRR@10 | MRR@50 |
+|---|---|---:|---:|---:|---:|---:|
+| BM25 | Bridge | TBD | TBD | TBD | TBD | TBD |
+| BM25 | Comparison | TBD | TBD | TBD | TBD | TBD |
+| Dense | Bridge | TBD | TBD | TBD | TBD | TBD |
+| Dense | Comparison | TBD | TBD | TBD | TBD | TBD |
+| Dense + Rerank | Bridge | TBD | TBD | TBD | TBD | TBD |
+| Dense + Rerank | Comparison | TBD | TBD | TBD | TBD | TBD |
 
 #### Reranker Rescue/Damage Table
 
@@ -585,7 +592,7 @@ Responsibilities:
 - Compute Any Evidence Recall@k / Evidence Hit@k.
 - Compute Full Evidence Recall@k.
 - Compute Partial Evidence Recall@k.
-- Compute MRR.
+- Compute MRR@10 and MRR@50 from the shared saved horizons.
 - Save metric results to CSV.
 
 ### `FailureAnalyzer`
@@ -734,7 +741,7 @@ Tasks:
 - Finish dense retrieval.
 - Implement full evidence recall.
 - Implement partial evidence recall.
-- Implement MRR.
+- Implement the reciprocal-rank core; formal runners expose MRR@10 and MRR@50.
 - Build the pooled retrieval corpus (all 500 evaluation questions' paragraphs, deduplicated by title).
 - Run BM25 and dense retrieval on 500 examples in **both corpus settings** (pooled primary, per-question contrast).
 - In the pooled setting, save dense top-50 candidate lists per question — this is the reranker's input in Week 3.
@@ -843,7 +850,7 @@ Tasks:
    - Any Evidence Recall@k / Evidence Hit@k
    - Full evidence recall
    - Partial evidence recall
-   - MRR
+   - MRR@10 / MRR@50
 9. Results
    - Main results
    - Bridge vs comparison results
@@ -909,7 +916,7 @@ If the fine-tuning extension is added:
 
 Final version:
 
-> This project focuses on evidence retrieval for multi-hop question answering on HotpotQA. We compare BM25 lexical retrieval, dense embedding-based retrieval, and dense retrieval with cross-encoder reranking using Any Evidence Recall@k / Evidence Hit@k, Full Evidence Recall@k, Partial Evidence Recall@k, and MRR, in two corpus settings: a pooled corpus built from all evaluation questions' context paragraphs (primary) and the original per-question distractor setting (contrast). The main contribution is a structured failure analysis of retrieval errors, including BM25-dense disagreement cases, bridge vs comparison differences, first-hop-only failures, missing bridge entity failures, comparison coverage failures, lexical mismatch, dense semantic drift, distractor entity failures, and reranker rescue/damage cases, assigned by explicit rule-based labeling. If time allows, we additionally fine-tune the dense retriever on HotpotQA training pairs and analyze which failure categories fine-tuning repairs.
+> This project focuses on evidence retrieval for multi-hop question answering on HotpotQA. We compare BM25 lexical retrieval, dense embedding-based retrieval, and dense retrieval with cross-encoder reranking using Any Evidence Recall@k / Evidence Hit@k, Full Evidence Recall@k, Partial Evidence Recall@k, MRR@10, and MRR@50, in two corpus settings: a pooled corpus built from all evaluation questions' context paragraphs (primary) and the original per-question distractor setting (contrast). The main contribution is a structured failure analysis of retrieval errors, including BM25-dense disagreement cases, bridge vs comparison differences, first-hop-only failures, missing bridge entity failures, comparison coverage failures, lexical mismatch, dense semantic drift, distractor entity failures, and reranker rescue/damage cases, assigned by explicit rule-based labeling. If time allows, we additionally fine-tune the dense retriever on HotpotQA training pairs and analyze which failure categories fine-tuning repairs.
 
 Short version for teammates:
 

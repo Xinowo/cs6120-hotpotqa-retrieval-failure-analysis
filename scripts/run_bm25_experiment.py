@@ -9,11 +9,12 @@ Runs BM25 in BOTH corpus settings:
 
   - pooled:       one shared corpus built from ALL loaded examples' paragraphs
                   (deduplicated by title). PRIMARY setting. k = 2, 5, 10 all
-                  computed and filled.
+                  computed and filled; top-50 titles are stored.
   - per_question: each question retrieves over its own ~10 paragraphs only
                   (Week 1 setting). CONTRAST setting. k = 2, 5 computed;
-                  k = 10 is NOT computed (left empty), since it's trivially
+                  k = 10 is NOT computed (left empty), since it is trivially
                   1.0 on a ~10-paragraph corpus (schema spec K policy).
+                  All available titles up to 10 are stored.
 
 Table-reporting rule (unchanged, per Weekly Todo Plan): pooled tables report
 k = 2, 5, 10; per_question tables report k = 2 only. The stored per_question
@@ -35,22 +36,20 @@ import pandas as pd
 from src.data_loader import load_examples, build_pooled_corpus
 from src.retrievers import BM25Retriever
 from src.evaluator import evaluate_example, aggregate_results
+from src.results_schema import (
+    METRIC_KS_BY_SETTING,
+    RESULT_COLUMNS,
+    STORE_DEPTH_BY_SETTING,
+    TITLE_SEPARATOR,
+)
 
-POOLED_K_VALUES = [2, 5, 10]
-PER_QUESTION_K_VALUES = [2, 5]  # @10 deliberately NOT computed for this setting (schema K policy)
-TOP_K_MAX = 10  # retrieved_titles column stores top-10 (schema: "enough to recompute any metric at k <= 10")
+POOLED_K_VALUES = list(METRIC_KS_BY_SETTING["pooled"])
+PER_QUESTION_K_VALUES = list(METRIC_KS_BY_SETTING["per_question"])
+POOLED_TOP_K_MAX = STORE_DEPTH_BY_SETTING["pooled"]
+PER_QUESTION_TOP_K_MAX = STORE_DEPTH_BY_SETTING["per_question"]
 
-# Fixed column order per docs/specs/2026-07-15-results-csv-schema.md.
-# New metric columns (full/partial recall, mrr) are appended after any_evidence_recall@k,
-# per the schema's "no renames, no reordering of existing columns" rule.
-COLUMN_ORDER = [
-    "method", "setting", "example_id", "question_type", "level", "question",
-    "gold_titles", "retrieved_titles",
-    "any_evidence_recall@2", "any_evidence_recall@5", "any_evidence_recall@10",
-    "full_evidence_recall@2", "full_evidence_recall@5", "full_evidence_recall@10",
-    "partial_evidence_recall@2", "partial_evidence_recall@5", "partial_evidence_recall@10",
-    "mrr",
-]
+# Fixed column order shared by BM25, dense, and the future reranker.
+COLUMN_ORDER = RESULT_COLUMNS
 
 
 def _to_csv_value(value):
@@ -58,6 +57,19 @@ def _to_csv_value(value):
     if isinstance(value, bool):
         return int(value)
     return value
+
+
+def _evaluate_for_results(retrieved_titles, gold_titles, k_values):
+    """Call the existing evaluator and expose explicit RR@10/RR@50 fields."""
+    metrics = evaluate_example(retrieved_titles, gold_titles, k_values=k_values)
+    metrics.pop("mrr")
+    metrics["reciprocal_rank_at_10"] = evaluate_example(
+        retrieved_titles[:10], gold_titles, k_values=[]
+    )["mrr"]
+    metrics["reciprocal_rank_at_50"] = evaluate_example(
+        retrieved_titles[:50], gold_titles, k_values=[]
+    )["mrr"]
+    return metrics
 
 
 def _build_row(method: str, setting: str, ex, retrieved_titles, metrics: dict) -> dict:
@@ -68,11 +80,11 @@ def _build_row(method: str, setting: str, ex, retrieved_titles, metrics: dict) -
         "question_type": ex.question_type,
         "level": ex.level,
         "question": ex.question,
-        "gold_titles": " | ".join(sorted(ex.gold_titles)),
-        "retrieved_titles": " | ".join(retrieved_titles),
+        "gold_titles": TITLE_SEPARATOR.join(sorted(ex.gold_titles)),
+        "retrieved_titles": TITLE_SEPARATOR.join(retrieved_titles),
     }
-    for key, value in metrics.items():
-        row[key] = _to_csv_value(value)
+    for key in COLUMN_ORDER[len(row):]:
+        row[key] = _to_csv_value(metrics.get(key))
     return row
 
 
@@ -92,8 +104,8 @@ def run_pooled_setting(examples) -> list:
     rows = []
     per_example_metrics = []
     for ex in examples:
-        retrieved_titles = retriever.retrieve_titles(ex.question, top_k=TOP_K_MAX)
-        metrics = evaluate_example(retrieved_titles, ex.gold_titles, k_values=POOLED_K_VALUES)
+        retrieved_titles = retriever.retrieve_titles(ex.question, top_k=POOLED_TOP_K_MAX)
+        metrics = _evaluate_for_results(retrieved_titles, ex.gold_titles, POOLED_K_VALUES)
         per_example_metrics.append(metrics)
         rows.append(_build_row("bm25", "pooled", ex, retrieved_titles, metrics))
 
@@ -111,8 +123,10 @@ def run_per_question_setting(examples) -> list:
     per_example_metrics = []
     for ex in examples:
         retriever = BM25Retriever(ex.paragraphs)
-        retrieved_titles = retriever.retrieve_titles(ex.question, top_k=TOP_K_MAX)
-        metrics = evaluate_example(retrieved_titles, ex.gold_titles, k_values=PER_QUESTION_K_VALUES)
+        retrieved_titles = retriever.retrieve_titles(ex.question, top_k=PER_QUESTION_TOP_K_MAX)
+        metrics = _evaluate_for_results(
+            retrieved_titles, ex.gold_titles, PER_QUESTION_K_VALUES
+        )
         per_example_metrics.append(metrics)
         rows.append(_build_row("bm25", "per_question", ex, retrieved_titles, metrics))
 

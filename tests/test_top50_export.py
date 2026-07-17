@@ -26,6 +26,7 @@ from src.top50_export import (
     TOP50_COLUMNS,
     TOP_K,
     build_top50_rows,
+    build_top50_rows_from_batches,
     write_top50_csv,
 )
 
@@ -138,6 +139,24 @@ def test_empty_examples_yields_no_rows():
     assert build_top50_rows(retriever, [], top_k=3) == []
 
 
+def test_from_batches_matches_wrapper():
+    """build_top50_rows_from_batches (fed already-retrieved batches) must yield
+    exactly what the retrieve-and-shape wrapper does -- this identity is what
+    lets the dense runner emit the export from its own single retrieval pass."""
+    retriever = make_pooled_index()
+    examples = make_examples()
+    top_k = 4
+
+    batches = retriever.retrieve_many([ex.question for ex in examples], top_k=top_k)
+    assert build_top50_rows_from_batches(examples, batches) == build_top50_rows(
+        retriever, examples, top_k=top_k
+    )
+
+
+def test_from_batches_empty_yields_no_rows():
+    assert build_top50_rows_from_batches([], []) == []
+
+
 def test_default_top_k_is_50():
     assert TOP_K == 50
 
@@ -180,6 +199,8 @@ if __name__ == "__main__":
     test_rows_match_retrieve_many_ordering()
     test_top_k_larger_than_corpus_returns_all_paragraphs()
     test_empty_examples_yields_no_rows()
+    test_from_batches_matches_wrapper()
+    test_from_batches_empty_yields_no_rows()
     test_default_top_k_is_50()
     test_write_csv_round_trip_preserves_schema_and_values()
     test_write_empty_rows_still_writes_header_only_csv()

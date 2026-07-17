@@ -23,12 +23,16 @@ import numpy as np
 
 from src.data_loader import HotpotExample, Paragraph
 from scripts.run_failure_review import (
+    BM25_RETRIEVER_NAME,
     METRIC_KS,
     RETRIEVER_NAME,
     build_config,
     build_details_record,
     build_retriever_record,
+    merge_details_records,
     next_run_id,
+    run_bm25_per_question,
+    run_bm25_pooled,
     run_dense_per_question,
     run_dense_pooled,
     write_run,
@@ -127,7 +131,7 @@ def test_retriever_record_metrics_cover_all_metric_ks():
     record = build_retriever_record(ranked, ex.gold_titles)
 
     # The runner forwards evaluator.evaluate_example unchanged. The evaluator
-    # now emits Full/Partial Recall + MRR alongside Any Evidence Recall, so this
+    # now emits Full/Partial Recall + explicit RR horizons alongside Any Recall, so this
     # plumbing test asserts the fixed-k any_evidence_recall cutoffs the HTML
     # filter relies on are present -- not an exact key set that would break
     # whenever the evaluator gains another metric.
@@ -135,6 +139,9 @@ def test_retriever_record_metrics_cover_all_metric_ks():
     assert any_recall_keys <= set(record["metrics"])
     # 'Cats' is the top hit, so any-evidence recall is True at every cutoff.
     assert all(record["metrics"][key] for key in any_recall_keys)
+    assert "mrr" not in record["metrics"]
+    assert record["metrics"]["reciprocal_rank_at_10"] == 1.0
+    assert record["metrics"]["reciprocal_rank_at_50"] == 1.0
 
 
 # ---- build_details_record ---------------------------------------------------
@@ -223,6 +230,38 @@ def test_run_dense_pooled_empty_examples():
     assert per_example_metrics == []
 
 
+# ---- BM25 + multi-retriever merge ------------------------------------------
+
+def test_run_bm25_per_question_matches_dense_record_shape():
+    examples = make_examples()
+    details, per_example_metrics = run_bm25_per_question(examples)
+
+    assert len(details) == len(examples)
+    assert len(per_example_metrics) == len(examples)
+    assert all(list(record["retrievers"]) == [BM25_RETRIEVER_NAME] for record in details)
+    assert details[0]["retrievers"][BM25_RETRIEVER_NAME]["gold_ranks"]["Cats"] == 1
+
+
+def test_run_bm25_pooled_stores_shared_index_records():
+    examples = make_examples()
+    details, per_example_metrics = run_bm25_pooled(examples, make_pooled_corpus())
+
+    assert len(details) == len(examples)
+    assert len(per_example_metrics) == len(examples)
+    assert details[1]["retrievers"][BM25_RETRIEVER_NAME]["gold_ranks"]["Unicorns"] is None
+
+
+def test_merge_details_records_puts_dense_and_bm25_side_by_side():
+    examples = make_examples()
+    dense_details, _ = run_dense_per_question(examples, encoder=fake_encode)
+    bm25_details, _ = run_bm25_per_question(examples)
+
+    merged = merge_details_records(dense_details, bm25_details)
+
+    assert [record["example_id"] for record in merged] == ["q1", "q2"]
+    assert set(merged[0]["retrievers"]) == {RETRIEVER_NAME, BM25_RETRIEVER_NAME}
+
+
 # ---- next_run_id ------------------------------------------------------------
 
 def test_next_run_id_starts_at_a_when_dir_absent():
@@ -278,7 +317,7 @@ def test_write_run_creates_three_files_with_complete_fields():
         assert cfg["corpus_setting"] == "per_question"
         assert cfg["corpus_size"] is None  # null for per_question (own corpus per q)
         assert cfg["git_commit"] == "deadbeef"
-        assert cfg["retrievers"] == {RETRIEVER_NAME: cfg["retrievers"][RETRIEVER_NAME]}
+        assert set(cfg["retrievers"]) == {RETRIEVER_NAME, BM25_RETRIEVER_NAME}
 
         # metrics.json: keyed by retriever, values are the aggregate recalls.
         with open(os.path.join(run_dir, "metrics.json"), encoding="utf-8") as f:
@@ -319,6 +358,9 @@ if __name__ == "__main__":
     test_run_dense_per_question_empty_examples()
     test_run_dense_pooled_one_record_per_example_over_shared_index()
     test_run_dense_pooled_empty_examples()
+    test_run_bm25_per_question_matches_dense_record_shape()
+    test_run_bm25_pooled_stores_shared_index_records()
+    test_merge_details_records_puts_dense_and_bm25_side_by_side()
     test_next_run_id_starts_at_a_when_dir_absent()
     test_next_run_id_skips_existing_letters()
     test_write_run_creates_three_files_with_complete_fields()
