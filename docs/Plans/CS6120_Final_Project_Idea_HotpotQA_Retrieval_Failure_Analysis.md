@@ -20,7 +20,7 @@ Sections below were updated on 2026-07-12 to reflect the current scope (rerankin
 
 Scope synchronization note, updated 2026-07-12:
 
-The submitted proposal (docs/Local/Plans/proposal.md) commits to reranking in both its title and proposed solution. Reranking is therefore **restored to the core scope** as the third core method (off-the-shelf cross-encoder, e.g. `cross-encoder/ms-marco-MiniLM-L-6-v2`, no training; dense top-50 candidates in the pooled setting, all candidates in the per-question setting), with rescue/damage analysis as a core deliverable scheduled for Week 3. This supersedes the 2026-07-10 note's demotion of the reranker. Fine-tuning of the dense retriever remains the sole optional extension and must not compete with the reranker for time.
+The submitted proposal commits to reranking in both its title and proposed solution. Reranking is therefore **restored to the core scope** as the third core method (off-the-shelf cross-encoder, e.g. `cross-encoder/ms-marco-MiniLM-L-6-v2`, no training; dense top-50 candidates in the pooled setting, all candidates in the per-question setting), with rescue/damage analysis as a core deliverable scheduled for Week 3. This supersedes the 2026-07-10 note's demotion of the reranker. Fine-tuning of the dense retriever remains the sole optional extension and must not compete with the reranker for time.
 
 Consistency note: the **Scope document is the source of truth**. This Idea document provides background and reusable framing, while the Weekly Todo document is the execution plan. Metric naming, evidence matching, and failure taxonomy should follow the Scope document.
 
