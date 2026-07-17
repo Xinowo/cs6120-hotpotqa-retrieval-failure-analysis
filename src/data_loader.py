@@ -8,20 +8,20 @@ pipeline needs:
   - the set of gold evidence paragraph titles for each question, derived
     from `supporting_facts`
 
-Scope note: per the project plan, the retrieval corpus for each question
-is built ONLY from that question's own `context` field (the ~10 paragraphs
-HotpotQA already provides, 2 gold + ~8 distractors). We are not retrieving
-against all of Wikipedia.
+Corpus settings (Week 2):
+  - per_question: each question's own ~10 provided paragraphs (Week 1 setting)
+  - pooled: all evaluated questions' paragraphs merged into one shared corpus,
+    deduplicated by title. This is now the PRIMARY setting; per_question is
+    the contrast setting (see build_pooled_corpus below).
 """
 
 from dataclasses import dataclass, field
-from typing import List, Dict, Set, Optional
+from typing import List, Dict, Set, Optional, Tuple
 
 
 @dataclass
 class Paragraph:
-    """One retrieval unit: a single Wikipedia paragraph belonging to a
-    specific HotpotQA question's context."""
+    """One retrieval unit: a single Wikipedia paragraph."""
     title: str
     text: str
 
@@ -34,7 +34,7 @@ class HotpotExample:
     answer: str
     question_type: str      # "bridge" or "comparison"
     level: str               # "easy" / "medium" / "hard"
-    paragraphs: List[Paragraph]         # the per-question retrieval corpus
+    paragraphs: List[Paragraph]         # this question's own ~10 paragraphs
     gold_titles: Set[str] = field(default_factory=set)  # gold evidence titles
 
 
@@ -44,8 +44,7 @@ def load_raw_hotpotqa(split: str = "validation", n: Optional[int] = None):
 
     split: "train" or "validation" (HotpotQA test set has no public labels,
            so validation is the standard dev/eval split to use here).
-    n: if set, only load the first n examples (useful for the Week 1
-       10-example debug subset).
+    n: if set, only load the first n examples.
 
     `trust_remote_code` compatibility: HotpotQA used to ship as a Hub loading
     script, so older `datasets` (< 3.0) REQUIRE `trust_remote_code=True` to run
@@ -96,10 +95,6 @@ def _extract_gold_titles(supporting_facts) -> Set[str]:
     Converts HotpotQA's `supporting_facts` field into a set of gold
     evidence paragraph titles.
 
-    `supporting_facts` arrives as a dict with parallel lists:
-        supporting_facts["title"]   -> list[str]
-        supporting_facts["sent_id"] -> list[int]
-
     We only need the titles: a retrieved paragraph counts as a gold hit
     if its title appears here, regardless of which sentence index.
     """
@@ -132,3 +127,32 @@ def load_examples(split: str = "validation", n: Optional[int] = None) -> List[Ho
     """
     raw = load_raw_hotpotqa(split=split, n=n)
     return [process_example(ex) for ex in raw]
+
+
+def build_pooled_corpus(examples: List[HotpotExample]) -> Tuple[List[Paragraph], List[str]]:
+    """
+    Merges every example's per-question paragraphs into one shared corpus
+    (Week 2's PRIMARY corpus setting), deduplicated by title.
+
+    Dedup rule (per project plan): if the same title appears across multiple
+    questions with slightly different paragraph text, keep the FIRST
+    occurrence encountered and log the title as a collision. This is safe
+    for evaluation because gold matching is by title, not exact text.
+
+    Returns:
+        (pooled_paragraphs, collision_titles)
+        - pooled_paragraphs: deduplicated list of Paragraph, insertion order
+        - collision_titles: titles where a later occurrence's text differed
+          from the first (for logging/inspection, not used in scoring)
+    """
+    seen: Dict[str, Paragraph] = {}
+    collision_titles: List[str] = []
+
+    for example in examples:
+        for paragraph in example.paragraphs:
+            if paragraph.title not in seen:
+                seen[paragraph.title] = paragraph
+            elif seen[paragraph.title].text != paragraph.text:
+                collision_titles.append(paragraph.title)
+
+    return list(seen.values()), collision_titles
