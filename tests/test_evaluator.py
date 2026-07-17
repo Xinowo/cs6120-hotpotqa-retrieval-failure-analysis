@@ -36,6 +36,13 @@ def test_evaluate_example_multiple_k():
         "any_evidence_recall@2": False,
         "any_evidence_recall@5": True,
         "any_evidence_recall@10": True,
+        "full_evidence_recall@2": False,
+        "full_evidence_recall@5": True,
+        "full_evidence_recall@10": True,
+        "partial_evidence_recall@2": 0.0,
+        "partial_evidence_recall@5": 1.0,
+        "partial_evidence_recall@10": 1.0,
+        "mrr": 1 / 3,
     }
 
 
