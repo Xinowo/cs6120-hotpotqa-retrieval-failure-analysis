@@ -142,9 +142,46 @@ def test_store_top_k_limits_retrieved_titles():
     assert len(rows[0]["retrieved_titles"].split(" | ")) == 2
 
 
-def test_pooled_setting_raises_not_implemented():
-    with pytest.raises(NotImplementedError):
-        runner.main(n=1, split="validation", setting="pooled", k=10, out_path="unused.csv")
+def make_pooled_corpus():
+    """The shared pooled corpus for the offline pooled tests: four distinct
+    single-word paragraphs (the same vocab the fake encoder ranks on), standing
+    in for build_pooled_corpus's output so no model/data is needed."""
+    return [
+        Paragraph(title="Cats", text="cat"),
+        Paragraph(title="Dogs", text="dog"),
+        Paragraph(title="Fishes", text="fish"),
+        Paragraph(title="Birds", text="bird"),
+    ]
+
+
+def test_pooled_fills_all_three_cutoffs():
+    # The pooled K policy fills @2/@5/@10 (unlike per_question, which leaves
+    # @10 empty). "cat" ranks "Cats" first, so the gold hits at every cutoff.
+    ex = make_example("id1", "cat", {"Cats"})
+    rows, _ = runner.run_pooled([ex], make_pooled_corpus(), encoder=fake_encode)
+    row = rows[0]
+
+    assert row["setting"] == "pooled"
+    assert row["any_evidence_recall@2"] == 1
+    assert row["any_evidence_recall@5"] == 1
+    assert row["any_evidence_recall@10"] == 1  # computed, not left empty
+
+
+def test_pooled_one_row_per_example_over_shared_index():
+    # Every question is scored against the SAME shared corpus in one batch.
+    examples = [
+        make_example("q_cat", "cat", {"Cats"}),
+        make_example("q_fish", "fish", {"Fishes"}),
+    ]
+    rows, per_example_metrics = runner.run_pooled(
+        examples, make_pooled_corpus(), encoder=fake_encode
+    )
+
+    assert [r["example_id"] for r in rows] == ["q_cat", "q_fish"]
+    assert len(per_example_metrics) == len(examples)
+    # q_cat hits its gold at rank 1; q_fish hits its gold at rank 1 too.
+    assert rows[0]["any_evidence_recall@2"] == 1
+    assert rows[1]["any_evidence_recall@2"] == 1
 
 
 def test_main_rejects_k_smaller_than_max_metric_cutoff(monkeypatch):
@@ -155,3 +192,13 @@ def test_main_rejects_k_smaller_than_max_metric_cutoff(monkeypatch):
     monkeypatch.setattr(runner, "load_examples", _boom)
     with pytest.raises(ValueError):
         runner.main(n=1, split="validation", setting="per_question", k=3, out_path="unused.csv")
+
+
+def test_main_rejects_k_smaller_than_max_metric_cutoff_pooled(monkeypatch):
+    # pooled evaluates up to @10, so --k=3 must be rejected before any load.
+    def _boom(*a, **k):
+        raise AssertionError("load_examples must not be called when --k is invalid")
+
+    monkeypatch.setattr(runner, "load_examples", _boom)
+    with pytest.raises(ValueError):
+        runner.main(n=1, split="validation", setting="pooled", k=3, out_path="unused.csv")

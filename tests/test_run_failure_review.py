@@ -30,6 +30,7 @@ from scripts.run_failure_review import (
     build_retriever_record,
     next_run_id,
     run_dense_per_question,
+    run_dense_pooled,
     write_run,
 )
 
@@ -176,6 +177,52 @@ def test_run_dense_per_question_empty_examples():
     assert per_example_metrics == []
 
 
+# ---- run_dense_pooled -------------------------------------------------------
+
+def make_pooled_corpus():
+    """Shared pooled corpus for the offline pooled tests: the union of both
+    questions' retrievable paragraphs. 'Unicorns' (q2's second gold) is still
+    absent, so its gold_rank must stay None even against the shared index."""
+    return [
+        Paragraph(title="Cats", text="cat cat cat"),
+        Paragraph(title="Dogs", text="dog dog dog"),
+        Paragraph(title="Fish", text="fish fish fish"),
+    ]
+
+
+def test_run_dense_pooled_one_record_per_example_over_shared_index():
+    """Pooled path: one shared index, every question scored against it in a
+    batch; record shape matches the per_question path."""
+    examples = make_examples()
+    details, per_example_metrics = run_dense_pooled(
+        examples, make_pooled_corpus(), encoder=fake_encode
+    )
+
+    assert len(details) == len(examples)
+    assert len(per_example_metrics) == len(examples)
+    assert [r["example_id"] for r in details] == ["q1", "q2"]
+    for record in details:
+        assert list(record["retrievers"]) == [RETRIEVER_NAME]
+        assert {f"any_evidence_recall@{k}" for k in METRIC_KS} <= set(
+            record["retrievers"][RETRIEVER_NAME]["metrics"]
+        )
+    # q1's gold 'Cats' hits at rank 1; q2's gold 'Unicorns' is absent from the
+    # shared corpus, so its gold_rank stays None (forwarded from evaluator).
+    q1_ranks = details[0]["retrievers"][RETRIEVER_NAME]["gold_ranks"]
+    q2_ranks = details[1]["retrievers"][RETRIEVER_NAME]["gold_ranks"]
+    assert q1_ranks["Cats"] == 1
+    assert q2_ranks["Fish"] == 1
+    assert q2_ranks["Unicorns"] is None
+
+
+def test_run_dense_pooled_empty_examples():
+    details, per_example_metrics = run_dense_pooled(
+        [], make_pooled_corpus(), encoder=fake_encode
+    )
+    assert details == []
+    assert per_example_metrics == []
+
+
 # ---- next_run_id ------------------------------------------------------------
 
 def test_next_run_id_starts_at_a_when_dir_absent():
@@ -229,6 +276,7 @@ def test_write_run_creates_three_files_with_complete_fields():
         with open(os.path.join(run_dir, "config.json"), encoding="utf-8") as f:
             cfg = json.load(f)
         assert cfg["corpus_setting"] == "per_question"
+        assert cfg["corpus_size"] is None  # null for per_question (own corpus per q)
         assert cfg["git_commit"] == "deadbeef"
         assert cfg["retrievers"] == {RETRIEVER_NAME: cfg["retrievers"][RETRIEVER_NAME]}
 
@@ -249,6 +297,19 @@ def test_build_config_git_commit_none_is_preserved():
     assert config["git_commit"] is None
 
 
+def test_build_config_records_pooled_corpus_size():
+    """The pooled run records the shared corpus's paragraph count for
+    traceability (per_question leaves it null)."""
+    config = build_config(
+        run_id="2026-07-17_a", n=2, split="validation", setting="pooled",
+        top_k_max=50, timestamp="2026-07-17T12:00:00", git_commit=None,
+        corpus_size=4937,
+    )
+    assert config["corpus_setting"] == "pooled"
+    assert config["corpus_size"] == 4937
+    assert config["top_k_max"] == 50
+
+
 if __name__ == "__main__":
     test_retriever_record_top_k_is_ranked_and_complete()
     test_retriever_record_gold_ranks_match_evaluator()
@@ -256,8 +317,11 @@ if __name__ == "__main__":
     test_details_record_shape_and_sorted_gold()
     test_run_dense_per_question_produces_one_record_per_example()
     test_run_dense_per_question_empty_examples()
+    test_run_dense_pooled_one_record_per_example_over_shared_index()
+    test_run_dense_pooled_empty_examples()
     test_next_run_id_starts_at_a_when_dir_absent()
     test_next_run_id_skips_existing_letters()
     test_write_run_creates_three_files_with_complete_fields()
     test_build_config_git_commit_none_is_preserved()
+    test_build_config_records_pooled_corpus_size()
     print("All run_failure_review tests passed.")

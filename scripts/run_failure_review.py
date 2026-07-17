@@ -20,15 +20,18 @@ Every evaluation quantity written here (recall@k, gold hit ranks) comes from
 output into JSON. It re-implements no metric -- that logic is a hand-written
 core component and stays in evaluator.py.
 
-Scope here is the **per_question** path only (one small ~10-paragraph corpus
-per question, each re-embedded, exactly like the dense runner). The `pooled`
-path needs the shared pooled corpus from data_loader.py (Jiajun) and is
-deferred: asking for it raises a clear NotImplementedError. Only the `dense`
-retriever is wired in for now; the `retrievers` object in details.jsonl is a
-dict precisely so BM25 / rerank can be added later without a schema change.
+Both corpus settings are wired: **per_question** builds one small
+~10-paragraph corpus per question (each re-embedded), while **pooled** builds
+ONE shared index over every question's paragraphs merged and deduplicated
+(data_loader.build_pooled_corpus) and scores all questions against it in a
+single batch -- so a gold can be outranked by OTHER questions' paragraphs, the
+drift/distractor signal per_question can't expose. Only the `dense` retriever
+is wired in for now; the `retrievers` object in details.jsonl is a dict
+precisely so BM25 / rerank can be added later without a schema change.
 
 Usage:
     python scripts/run_failure_review.py --n 10 --setting per_question
+    python scripts/run_failure_review.py --n 500 --setting pooled
     python scripts/run_failure_review.py --n 100 --run-id 2026-07-16_a
 
 The first real run downloads all-MiniLM-L6-v2 (~90MB) and HotpotQA, so it
@@ -46,7 +49,7 @@ from datetime import datetime
 # Allow running directly from the project root without installing the package.
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from src.data_loader import load_examples
+from src.data_loader import build_pooled_corpus, load_examples
 from src.dense_retriever import DEFAULT_MODEL_NAME, DenseRetriever
 from src.evaluator import aggregate_results, evaluate_example, gold_ranks
 
@@ -58,8 +61,13 @@ RETRIEVER_NAME = "dense"
 
 # How many ranked results to store per question. gold_ranks treats absence
 # from this list as "not retrieved" (rank null), so this is the top_k_max
-# horizon; a per-question corpus is only ~10 paragraphs, so 10 captures it all.
+# horizon. Defaults differ by setting: a per-question corpus is only ~10
+# paragraphs, so 10 captures it all; the pooled corpus is thousands of
+# paragraphs, so 50 is the storage/candidate depth (also the reranker's
+# candidate-set size). A gold ranked beyond the horizon still reads as null.
 DEFAULT_TOP_K_MAX = 10
+POOLED_TOP_K_MAX = 50
+TOP_K_MAX_BY_SETTING = {"per_question": DEFAULT_TOP_K_MAX, "pooled": POOLED_TOP_K_MAX}
 
 # The metric cutoffs written into every details record. These are fixed at
 # {2, 5, 10} (not narrowed by setting) because the review HTML's filter rule
@@ -137,6 +145,31 @@ def run_dense_per_question(examples, encoder=None, top_k_max=DEFAULT_TOP_K_MAX):
     return details_records, per_example_metrics
 
 
+def run_dense_pooled(examples, pooled_paragraphs, encoder=None, top_k_max=POOLED_TOP_K_MAX):
+    """Pooled dense path: ONE shared DenseRetriever over the whole
+    deduplicated pooled corpus, with every question scored against it in a
+    single batch (retrieve_many). Because the index holds every question's
+    paragraphs, a gold can be outranked by OTHER questions' paragraphs -- the
+    drift/distractor signal per_question can't show. Returns
+    (details_records, per_example_metrics), same shape as run_dense_per_question.
+
+    `pooled_paragraphs` is the shared corpus from build_pooled_corpus; `encoder`
+    is injected so the one model load is reused and tests stay offline. Record
+    and metric shaping is identical to the per_question path -- only the corpus
+    and the batched retrieval differ.
+    """
+    retriever = DenseRetriever(pooled_paragraphs, encoder=encoder)
+    batches = retriever.retrieve_many([ex.question for ex in examples], top_k=top_k_max)
+
+    details_records = []
+    per_example_metrics = []
+    for ex, ranked in zip(examples, batches):
+        record = build_retriever_record(ranked, ex.gold_titles)
+        details_records.append(build_details_record(ex, {RETRIEVER_NAME: record}))
+        per_example_metrics.append(record["metrics"])
+    return details_records, per_example_metrics
+
+
 def _warm_encoder(examples):
     """Build one DenseRetriever up front just to load the model once, then
     reuse its encoder across all questions. Returns None for an empty example
@@ -204,15 +237,19 @@ def write_run(run_dir, details_records, metrics_by_retriever, config):
     return run_dir
 
 
-def build_config(run_id, n, split, setting, top_k_max, timestamp, git_commit):
-    """Assemble config.json: run parameters plus the two traceability fields
-    the spec requires -- corpus_setting (per_question vs pooled failures are
-    different in nature) and git_commit (which code version produced this)."""
+def build_config(run_id, n, split, setting, top_k_max, timestamp, git_commit,
+                 corpus_size=None):
+    """Assemble config.json: run parameters plus the traceability fields the
+    spec requires -- corpus_setting (per_question vs pooled failures are
+    different in nature) and git_commit (which code version produced this).
+    corpus_size records the shared pooled corpus's paragraph count (null for
+    per_question, where each question has its own ~10-paragraph corpus)."""
     return {
         "run_id": run_id,
         "n": n,
         "split": split,
         "corpus_setting": setting,
+        "corpus_size": corpus_size,
         "top_k_max": top_k_max,
         "retrievers": {RETRIEVER_NAME: DEFAULT_MODEL_NAME},
         "timestamp": timestamp,
@@ -222,14 +259,13 @@ def build_config(run_id, n, split, setting, top_k_max, timestamp, git_commit):
 
 
 def main(n, split, setting, top_k_max, run_id, runs_root):
-    if setting == "pooled":
-        raise NotImplementedError(
-            "The pooled setting is not implemented yet -- it needs the shared "
-            "pooled corpus from data_loader.py (Jiajun). This runner implements "
-            "per_question only."
-        )
-    if setting != "per_question":
+    if setting not in TOP_K_MAX_BY_SETTING:
         raise ValueError(f"Unknown setting: {setting!r}")
+
+    # Default storage horizon depends on the setting (10 per_question, 50
+    # pooled); an explicit --k overrides it.
+    if top_k_max is None:
+        top_k_max = TOP_K_MAX_BY_SETTING[setting]
 
     max_metric_k = max(METRIC_KS)
     if top_k_max < max_metric_k:
@@ -249,9 +285,21 @@ def main(n, split, setting, top_k_max, run_id, runs_root):
     print("Building dense encoder (first run downloads all-MiniLM-L6-v2)...")
     encoder = _warm_encoder(examples)
 
-    details_records, per_example_metrics = run_dense_per_question(
-        examples, encoder=encoder, top_k_max=top_k_max
-    )
+    corpus_size = None
+    if setting == "per_question":
+        details_records, per_example_metrics = run_dense_per_question(
+            examples, encoder=encoder, top_k_max=top_k_max
+        )
+    else:  # pooled: one shared index over every question's paragraphs
+        pooled_paragraphs, collision_titles = build_pooled_corpus(examples)
+        corpus_size = len(pooled_paragraphs)
+        print(
+            f"Pooled corpus: {corpus_size} paragraphs "
+            f"({len(collision_titles)} title collisions).\n"
+        )
+        details_records, per_example_metrics = run_dense_pooled(
+            examples, pooled_paragraphs, encoder=encoder, top_k_max=top_k_max
+        )
 
     metrics_by_retriever = {RETRIEVER_NAME: aggregate_results(per_example_metrics)}
     config = build_config(
@@ -262,6 +310,7 @@ def main(n, split, setting, top_k_max, run_id, runs_root):
         top_k_max=top_k_max,
         timestamp=datetime.now().isoformat(timespec="seconds"),
         git_commit=get_git_commit(),
+        corpus_size=corpus_size,
     )
 
     write_run(run_dir, details_records, metrics_by_retriever, config)
@@ -287,16 +336,18 @@ if __name__ == "__main__":
         type=str,
         default="per_question",
         choices=["per_question", "pooled"],
-        help="Corpus setting (per_question implemented; pooled deferred)",
+        help="Corpus setting: per_question (small per-question corpus) or "
+        "pooled (one shared deduplicated corpus over all questions)",
     )
     parser.add_argument("--split", type=str, default="validation", help="HotpotQA split")
     parser.add_argument(
         "--k",
         type=int,
-        default=DEFAULT_TOP_K_MAX,
+        default=None,
         dest="top_k_max",
         help="How many ranked results to store per question (top_k_max horizon "
-        "for gold_ranks; must cover the largest metric cutoff)",
+        "for gold_ranks; must cover the largest metric cutoff). Default depends "
+        "on --setting: 10 for per_question, 50 for pooled.",
     )
     parser.add_argument(
         "--run-id",
