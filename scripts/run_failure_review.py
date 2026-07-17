@@ -3,15 +3,15 @@ run_failure_review.py  (the failure-review runner)
 
 Produces the structured, per-run record that the failure-review pipeline
 (docs/specs/2026-07-12-failure-review-pipeline-design.md) is built on. Unlike
-`run_dense_experiment.py` -- which writes the finalized wide-table
-`results/dense_results.csv` (one True/False row per example, for the formal
+`run_dense_experiment.py` -- which writes the finalized long-format
+`results/dense_results.csv` (one metric row per example, for the formal
 results) -- this runner writes a self-contained *run directory* rich enough
 for manual failure debugging:
 
     results/runs/<run_id>/
         details.jsonl    one line per question: full top_k (rank/title/score/
                          text), gold_ranks, and per-retriever metrics
-        metrics.json     each retriever's overall Any Evidence Recall@k
+        metrics.json     each retriever's aggregate retrieval metrics
         config.json      run parameters + corpus_setting + git_commit
 
 Design principle (spec section 3): **Python computes, the HTML only displays.**
@@ -25,9 +25,8 @@ Both corpus settings are wired: **per_question** builds one small
 ONE shared index over every question's paragraphs merged and deduplicated
 (data_loader.build_pooled_corpus) and scores all questions against it in a
 single batch -- so a gold can be outranked by OTHER questions' paragraphs, the
-drift/distractor signal per_question can't expose. Only the `dense` retriever
-is wired in for now; the `retrievers` object in details.jsonl is a dict
-precisely so BM25 / rerank can be added later without a schema change.
+drift/distractor signal per_question can't expose. Dense and BM25 are both
+stored side by side so their rank-11--50 behavior can be compared directly.
 
 Usage:
     python scripts/run_failure_review.py --n 10 --setting per_question
@@ -52,12 +51,15 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from src.data_loader import build_pooled_corpus, load_examples
 from src.dense_retriever import DEFAULT_MODEL_NAME, DenseRetriever
 from src.evaluator import aggregate_results, evaluate_example, gold_ranks
+from src.results_schema import METRIC_KS as RESULT_METRIC_KS, STORE_DEPTH_BY_SETTING
+from src.retrievers import BM25Retriever
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
-# Only the dense retriever is wired in for now (Xin's half). The key here is
-# the name that appears under `retrievers.<name>` in details.jsonl.
+# Keys that appear under `retrievers.<name>` in details.jsonl.
 RETRIEVER_NAME = "dense"
+BM25_RETRIEVER_NAME = "bm25"
+BM25_MODEL_NAME = "rank_bm25.BM25Okapi"
 
 # How many ranked results to store per question. gold_ranks treats absence
 # from this list as "not retrieved" (rank null), so this is the top_k_max
@@ -65,14 +67,14 @@ RETRIEVER_NAME = "dense"
 # paragraphs, so 10 captures it all; the pooled corpus is thousands of
 # paragraphs, so 50 is the storage/candidate depth (also the reranker's
 # candidate-set size). A gold ranked beyond the horizon still reads as null.
-DEFAULT_TOP_K_MAX = 10
-POOLED_TOP_K_MAX = 50
-TOP_K_MAX_BY_SETTING = {"per_question": DEFAULT_TOP_K_MAX, "pooled": POOLED_TOP_K_MAX}
+DEFAULT_TOP_K_MAX = STORE_DEPTH_BY_SETTING["per_question"]
+POOLED_TOP_K_MAX = STORE_DEPTH_BY_SETTING["pooled"]
+TOP_K_MAX_BY_SETTING = STORE_DEPTH_BY_SETTING
 
 # The metric cutoffs written into every details record. These are fixed at
 # {2, 5, 10} (not narrowed by setting) because the review HTML's filter rule
 # is "misses at any k in {2, 5, 10}" -- the filter needs all three present.
-METRIC_KS = [2, 5, 10]
+METRIC_KS = list(RESULT_METRIC_KS)
 
 
 def build_retriever_record(ranked, gold_titles, metric_ks=METRIC_KS):
@@ -99,12 +101,21 @@ def build_retriever_record(ranked, gold_titles, metric_ks=METRIC_KS):
     ]
     retrieved_titles = [paragraph.title for paragraph, _ in ranked]
 
+    metrics = evaluate_example(retrieved_titles, gold_titles, k_values=metric_ks)
+    metrics.pop("mrr")
+    metrics["reciprocal_rank_at_10"] = evaluate_example(
+        retrieved_titles[:10], gold_titles, k_values=[]
+    )["mrr"]
+    metrics["reciprocal_rank_at_50"] = evaluate_example(
+        retrieved_titles[:50], gold_titles, k_values=[]
+    )["mrr"]
+
     return {
         "top_k": top_k,
         # gold_ranks is Xin's hand-written evaluator function; passed the full
         # ranked-title list, it returns each gold's 1-based rank or None.
         "gold_ranks": gold_ranks(retrieved_titles, gold_titles),
-        "metrics": evaluate_example(retrieved_titles, gold_titles, k_values=metric_ks),
+        "metrics": metrics,
     }
 
 
@@ -168,6 +179,49 @@ def run_dense_pooled(examples, pooled_paragraphs, encoder=None, top_k_max=POOLED
         details_records.append(build_details_record(ex, {RETRIEVER_NAME: record}))
         per_example_metrics.append(record["metrics"])
     return details_records, per_example_metrics
+
+
+def run_bm25_per_question(examples, top_k_max=DEFAULT_TOP_K_MAX):
+    """Per-question BM25 records, matching the dense details shape."""
+    details_records = []
+    per_example_metrics = []
+    for ex in examples:
+        ranked = BM25Retriever(ex.paragraphs).retrieve(ex.question, top_k=top_k_max)
+        record = build_retriever_record(ranked, ex.gold_titles)
+        details_records.append(build_details_record(ex, {BM25_RETRIEVER_NAME: record}))
+        per_example_metrics.append(record["metrics"])
+    return details_records, per_example_metrics
+
+
+def run_bm25_pooled(examples, pooled_paragraphs, top_k_max=POOLED_TOP_K_MAX):
+    """Pooled BM25 records from one shared index, matching dense top-50."""
+    retriever = BM25Retriever(pooled_paragraphs)
+    details_records = []
+    per_example_metrics = []
+    for ex in examples:
+        ranked = retriever.retrieve(ex.question, top_k=top_k_max)
+        record = build_retriever_record(ranked, ex.gold_titles)
+        details_records.append(build_details_record(ex, {BM25_RETRIEVER_NAME: record}))
+        per_example_metrics.append(record["metrics"])
+    return details_records, per_example_metrics
+
+
+def merge_details_records(left_records, right_records):
+    """Merge two retrievers' aligned question records without losing fields."""
+    if len(left_records) != len(right_records):
+        raise ValueError("Retriever detail sets have different lengths.")
+
+    merged_records = []
+    for left, right in zip(left_records, right_records):
+        if left["example_id"] != right["example_id"]:
+            raise ValueError("Retriever detail sets are not aligned by example_id.")
+        merged = dict(left)
+        merged["retrievers"] = {
+            **left["retrievers"],
+            **right["retrievers"],
+        }
+        merged_records.append(merged)
+    return merged_records
 
 
 def _warm_encoder(examples):
@@ -251,7 +305,10 @@ def build_config(run_id, n, split, setting, top_k_max, timestamp, git_commit,
         "corpus_setting": setting,
         "corpus_size": corpus_size,
         "top_k_max": top_k_max,
-        "retrievers": {RETRIEVER_NAME: DEFAULT_MODEL_NAME},
+        "retrievers": {
+            RETRIEVER_NAME: DEFAULT_MODEL_NAME,
+            BM25_RETRIEVER_NAME: BM25_MODEL_NAME,
+        },
         "timestamp": timestamp,
         "script": "scripts/run_failure_review.py",
         "git_commit": git_commit,
@@ -287,8 +344,11 @@ def main(n, split, setting, top_k_max, run_id, runs_root):
 
     corpus_size = None
     if setting == "per_question":
-        details_records, per_example_metrics = run_dense_per_question(
+        dense_details, dense_metrics = run_dense_per_question(
             examples, encoder=encoder, top_k_max=top_k_max
+        )
+        bm25_details, bm25_metrics = run_bm25_per_question(
+            examples, top_k_max=top_k_max
         )
     else:  # pooled: one shared index over every question's paragraphs
         pooled_paragraphs, collision_titles = build_pooled_corpus(examples)
@@ -297,11 +357,18 @@ def main(n, split, setting, top_k_max, run_id, runs_root):
             f"Pooled corpus: {corpus_size} paragraphs "
             f"({len(collision_titles)} title collisions).\n"
         )
-        details_records, per_example_metrics = run_dense_pooled(
+        dense_details, dense_metrics = run_dense_pooled(
             examples, pooled_paragraphs, encoder=encoder, top_k_max=top_k_max
         )
+        bm25_details, bm25_metrics = run_bm25_pooled(
+            examples, pooled_paragraphs, top_k_max=top_k_max
+        )
 
-    metrics_by_retriever = {RETRIEVER_NAME: aggregate_results(per_example_metrics)}
+    details_records = merge_details_records(dense_details, bm25_details)
+    metrics_by_retriever = {
+        RETRIEVER_NAME: aggregate_results(dense_metrics),
+        BM25_RETRIEVER_NAME: aggregate_results(bm25_metrics),
+    }
     config = build_config(
         run_id=run_id,
         n=len(examples),
@@ -316,18 +383,19 @@ def main(n, split, setting, top_k_max, run_id, runs_root):
     write_run(run_dir, details_records, metrics_by_retriever, config)
     print(f"Wrote run '{run_id}' to {run_dir}")
     print(f"  details.jsonl : {len(details_records)} lines")
-    print(f"  metrics.json  : {RETRIEVER_NAME}")
+    print(f"  metrics.json  : {', '.join(metrics_by_retriever)}")
     print(f"  config.json   : corpus_setting={setting}, git_commit={config['git_commit']}\n")
 
-    print(f"Overall {RETRIEVER_NAME.upper()} retrieval metrics "
-          f"({setting}, n={len(examples)}):")
-    for metric, value in metrics_by_retriever[RETRIEVER_NAME].items():
-        print(f"  {metric}: {value:.3f}")
+    for retriever_name, metrics in metrics_by_retriever.items():
+        print(f"Overall {retriever_name.upper()} retrieval metrics "
+              f"({setting}, n={len(examples)}):")
+        for metric, value in metrics.items():
+            print(f"  {metric}: {value:.3f}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Failure-review runner: HotpotQA -> dense retrieval -> "
+        description="Failure-review runner: HotpotQA -> dense + BM25 retrieval -> "
         "structured per-run directory (details.jsonl / metrics.json / config.json)."
     )
     parser.add_argument("--n", type=int, default=100, help="Number of examples to load")

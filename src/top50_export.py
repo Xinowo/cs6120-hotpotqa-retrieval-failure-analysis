@@ -44,6 +44,34 @@ TOP_K = 50
 TOP50_COLUMNS = ["example_id", "rank", "title", "score"]
 
 
+def build_top50_rows_from_batches(examples, batches) -> List[dict]:
+    """Shape schema rows from ALREADY-RETRIEVED scored batches.
+
+    `batches[i]` is example i's ranked list of `(Paragraph, score)` tuples --
+    exactly what `DenseRetriever.retrieve_many` returns -- aligned positionally
+    with `examples`. Splitting this out lets a caller that already ran
+    `retrieve_many` (the pooled dense runner, producing dense_results.csv) also
+    emit the top-50 export from the SAME ranking: no second retrieval pass, and
+    the export's per-question order is guaranteed identical to the results CSV.
+
+    `rank` is 1-based within each example. Row count is the sum over examples of
+    len(batch); with a batch of top_k candidates that is len(examples) * top_k.
+    An empty `examples`/`batches` yields an empty list.
+    """
+    rows = []
+    for example, results in zip(examples, batches):
+        for rank, (paragraph, score) in enumerate(results, start=1):
+            rows.append(
+                {
+                    "example_id": example.example_id,
+                    "rank": rank,
+                    "title": paragraph.title,
+                    "score": float(score),
+                }
+            )
+    return rows
+
+
 def build_top50_rows(retriever, examples, top_k: int = TOP_K) -> List[dict]:
     """For each example, retrieve its top_k candidates from the SHARED index
     and return schema-shaped rows (one dict per (example, rank)).
@@ -60,22 +88,15 @@ def build_top50_rows(retriever, examples, top_k: int = TOP_K) -> List[dict]:
     sum over examples of min(top_k, corpus_size); when the corpus has at
     least top_k paragraphs (the pooled case), that is exactly
     len(examples) * top_k. An empty `examples` yields an empty list.
+
+    This is a thin wrapper: it runs one batched retrieval, then shapes rows via
+    `build_top50_rows_from_batches`. Use it for a standalone/independent export;
+    the formal run reuses the dense runner's own `retrieve_many` batches instead
+    (so results CSV and export come from one retrieval pass).
     """
     questions = [ex.question for ex in examples]
     batches = retriever.retrieve_many(questions, top_k=top_k)
-
-    rows = []
-    for example, results in zip(examples, batches):
-        for rank, (paragraph, score) in enumerate(results, start=1):
-            rows.append(
-                {
-                    "example_id": example.example_id,
-                    "rank": rank,
-                    "title": paragraph.title,
-                    "score": float(score),
-                }
-            )
-    return rows
+    return build_top50_rows_from_batches(examples, batches)
 
 
 def write_top50_csv(rows: List[dict], out_path: str) -> None:

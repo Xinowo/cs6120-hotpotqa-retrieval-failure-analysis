@@ -25,6 +25,7 @@ import pytest
 from src.data_loader import HotpotExample, Paragraph
 
 import run_dense_experiment as runner
+from src.results_schema import RESULT_COLUMNS
 
 
 VOCAB = ["cat", "dog", "fish", "bird"]
@@ -66,18 +67,11 @@ def test_columns_match_schema_order():
     rows, _ = runner.run_per_question([ex], encoder=fake_encode)
     df = pd.DataFrame(rows, columns=runner.COLUMNS)
 
-    assert list(df.columns) == [
-        "method",
-        "setting",
-        "example_id",
-        "question_type",
-        "level",
-        "question",
-        "gold_titles",
-        "retrieved_titles",
-        "any_evidence_recall@2",
-        "any_evidence_recall@5",
-        "any_evidence_recall@10",
+    assert list(df.columns) == RESULT_COLUMNS
+    assert "mrr" not in df.columns
+    assert df.columns[-2:].tolist() == [
+        "reciprocal_rank_at_10",
+        "reciprocal_rank_at_50",
     ]
 
 
@@ -142,6 +136,18 @@ def test_store_top_k_limits_retrieved_titles():
     assert len(rows[0]["retrieved_titles"].split(" | ")) == 2
 
 
+def test_reciprocal_rank_horizons_distinguish_rank_11_to_50():
+    ex = make_example("deep_hit", "cat", {"Gold"})
+    titles = [f"Distractor {i}" for i in range(19)] + ["Gold"]
+
+    row, metrics = runner.make_row(ex, titles, "pooled", store_top_k=50)
+
+    assert row["reciprocal_rank_at_10"] == 0.0
+    assert row["reciprocal_rank_at_50"] == 1 / 20
+    assert metrics["reciprocal_rank_at_10"] == 0.0
+    assert metrics["reciprocal_rank_at_50"] == 1 / 20
+
+
 def make_pooled_corpus():
     """The shared pooled corpus for the offline pooled tests: four distinct
     single-word paragraphs (the same vocab the fake encoder ranks on), standing
@@ -158,7 +164,7 @@ def test_pooled_fills_all_three_cutoffs():
     # The pooled K policy fills @2/@5/@10 (unlike per_question, which leaves
     # @10 empty). "cat" ranks "Cats" first, so the gold hits at every cutoff.
     ex = make_example("id1", "cat", {"Cats"})
-    rows, _ = runner.run_pooled([ex], make_pooled_corpus(), encoder=fake_encode)
+    rows, _, _ = runner.run_pooled([ex], make_pooled_corpus(), encoder=fake_encode)
     row = rows[0]
 
     assert row["setting"] == "pooled"
@@ -173,7 +179,7 @@ def test_pooled_one_row_per_example_over_shared_index():
         make_example("q_cat", "cat", {"Cats"}),
         make_example("q_fish", "fish", {"Fishes"}),
     ]
-    rows, per_example_metrics = runner.run_pooled(
+    rows, per_example_metrics, _batches = runner.run_pooled(
         examples, make_pooled_corpus(), encoder=fake_encode
     )
 
@@ -184,8 +190,8 @@ def test_pooled_one_row_per_example_over_shared_index():
     assert rows[1]["any_evidence_recall@2"] == 1
 
 
-def test_main_rejects_k_smaller_than_max_metric_cutoff(monkeypatch):
-    # per_question evaluates up to @5, so --k=3 must be rejected before any load.
+def test_main_rejects_non_protocol_per_question_depth(monkeypatch):
+    # Formal per_question output is locked to 10, so --k=3 is rejected early.
     def _boom(*a, **k):
         raise AssertionError("load_examples must not be called when --k is invalid")
 
@@ -194,11 +200,78 @@ def test_main_rejects_k_smaller_than_max_metric_cutoff(monkeypatch):
         runner.main(n=1, split="validation", setting="per_question", k=3, out_path="unused.csv")
 
 
-def test_main_rejects_k_smaller_than_max_metric_cutoff_pooled(monkeypatch):
-    # pooled evaluates up to @10, so --k=3 must be rejected before any load.
+def test_main_rejects_non_protocol_pooled_depth(monkeypatch):
+    # Formal pooled output is locked to 50, so --k=10 is rejected early.
     def _boom(*a, **k):
         raise AssertionError("load_examples must not be called when --k is invalid")
 
     monkeypatch.setattr(runner, "load_examples", _boom)
     with pytest.raises(ValueError):
-        runner.main(n=1, split="validation", setting="pooled", k=3, out_path="unused.csv")
+        runner.main(n=1, split="validation", setting="pooled", k=10, out_path="unused.csv")
+
+
+def test_main_both_writes_both_settings_to_one_file(monkeypatch, tmp_path):
+    examples = [make_example("q1", "cat", {"Cats"})]
+    monkeypatch.setattr(runner, "load_examples", lambda **_kwargs: examples)
+    monkeypatch.setattr(runner, "_warm_encoder", lambda _examples: fake_encode)
+    monkeypatch.setattr(
+        runner,
+        "build_pooled_corpus",
+        lambda _examples: (make_pooled_corpus(), []),
+    )
+    out = tmp_path / "dense_results.csv"
+
+    runner.main(n=1, split="validation", setting="both", k=None, out_path=str(out))
+
+    result = pd.read_csv(out)
+    assert result["setting"].tolist() == ["pooled", "per_question"]
+    assert result.columns.tolist() == RESULT_COLUMNS
+
+
+def test_main_top50_out_writes_export_consistent_with_results(monkeypatch, tmp_path):
+    """--top50-out writes the score-bearing export from the SAME pooled
+    retrieval, so its schema, contiguous ranks, and per-question title order all
+    match dense_results.csv's pooled rows."""
+    from src.top50_export import TOP50_COLUMNS
+
+    examples = [
+        make_example("q_cat", "cat", {"Cats"}),
+        make_example("q_fish", "fish", {"Fishes"}),
+    ]
+    monkeypatch.setattr(runner, "load_examples", lambda **_kwargs: examples)
+    monkeypatch.setattr(runner, "_warm_encoder", lambda _examples: fake_encode)
+    monkeypatch.setattr(
+        runner, "build_pooled_corpus", lambda _examples: (make_pooled_corpus(), [])
+    )
+    out = tmp_path / "dense_results.csv"
+    top50 = tmp_path / "dense_top50_pooled.csv"
+
+    runner.main(
+        n=2, split="validation", setting="both",
+        k=None, out_path=str(out), top50_out=str(top50),
+    )
+
+    export = pd.read_csv(top50)
+    assert export.columns.tolist() == TOP50_COLUMNS
+
+    results = pd.read_csv(out)
+    pooled = results[results.setting == "pooled"].set_index("example_id")
+    for eid in ["q_cat", "q_fish"]:
+        ex_rows = export[export.example_id == eid]
+        # ranks are 1-based and contiguous within each example.
+        assert ex_rows["rank"].tolist() == list(range(1, len(ex_rows) + 1))
+        # export title order is identical to the results CSV's pooled row.
+        assert ex_rows["title"].tolist() == pooled.loc[eid, "retrieved_titles"].split(" | ")
+
+
+def test_main_top50_out_requires_pooled(monkeypatch):
+    # --top50-out is meaningless without pooled; reject before loading data.
+    def _boom(*a, **k):
+        raise AssertionError("load_examples must not run when --top50-out lacks pooled")
+
+    monkeypatch.setattr(runner, "load_examples", _boom)
+    with pytest.raises(ValueError):
+        runner.main(
+            n=1, split="validation", setting="per_question",
+            k=None, out_path="unused.csv", top50_out="unused_top50.csv",
+        )

@@ -1,8 +1,9 @@
 # Failure Review Pipeline — Design Doc
 
 - Date: 2026-07-12
-- Status: finalized after discussion with Xin, pending implementation
+- Status: implemented data layer; report UI pending
 - Revision: 2026-07-13, four additions after review — annotation import/restore, `git_commit` and `corpus_setting` added to config.json, `annotator`/`annotated_at` columns added to annotations.csv
+- Revision: 2026-07-17, pooled horizon fixed at top-50 and BM25 added beside Dense for deep-rank comparison
 - Related work: the observation notes and the failure-case filtering script (originally planned for Week 3; this design pulls it earlier and expands it)
 
 ## 1. Background and pain points
@@ -33,7 +34,7 @@ The current Week 1 debug scripts (`scripts/run_week1_debug.py`, `scripts/run_wee
 runner (scripts/)
    └─> results/runs/<run_id>/
          ├── details.jsonl    ← single source of truth (full record per question)
-         ├── metrics.json     ← overall recall summary (formerly terminal output)
+         ├── metrics.json     ← aggregate metrics by retriever
          └── config.json      ← run parameters and metadata
 
 scripts/build_failure_report.py
@@ -67,20 +68,21 @@ Core principle: **Python computes, HTML only displays.** All evaluation quantiti
         {"rank": 1, "title": "Doctor Strange (2016 film)", "score": 12.34, "text": "…full paragraph text…"}
       ],
       "gold_ranks": {"Ed Wood": 10, "Scott Derrickson": 4},
-      "metrics": {"any_evidence_recall@2": false, "any_evidence_recall@5": true, "any_evidence_recall@10": true}
+      "metrics": {"any_evidence_recall@2": false, "any_evidence_recall@5": true, "any_evidence_recall@10": true, "reciprocal_rank_at_10": 0.25, "reciprocal_rank_at_50": 0.25}
     },
     "dense": { "…same structure…": null }
   }
 }
 ```
 
-- `gold_ranks`: the rank (1-based) of each gold paragraph in that retriever's ordering; `null` if it did not make it into `top_k_max`.
+- `top_k_max`: 10 for per-question and 50 for pooled by default. Dense and BM25 use the same horizon.
+- `gold_ranks`: the rank (1-based) of each gold paragraph in that retriever's saved ordering; `null` means it did not make the saved horizon (rank > 50 for a standard pooled run), not that it is absent from the corpus.
 - `text`: full paragraph text (collapsed by default in the HTML, expandable for reading).
-- The existing `results/*.csv` wide-table output is **kept**, for compatibility with current viewing habits.
+- The formal long-format `results/*_results.csv` files are kept separately; pooled rows also store top-50 titles but omit scores/text.
 
 ### 4.3 metrics.json / config.json
 
-- `metrics.json`: each retriever's overall Any Evidence Recall@k (i.e. the summary currently printed to the terminal).
+- `metrics.json`: Dense and BM25 aggregate Recall@k, MRR@10, and MRR@50 values (using explicit reciprocal-rank field names in the per-example records).
 - `config.json`: n, split, top_k_max, retriever and model names (e.g. `all-MiniLM-L6-v2`), timestamp, script name, plus:
   - `corpus_setting`: `per_question` / `pooled`. The Week 1 debug scripts are all `per_question`; from Week 2 on, pooled is the primary setting. Failures under the two settings are different in nature (a per-question miss@2 is "picked the wrong 2 out of 10", a pooled miss is "couldn't fish it out of ~5000 paragraphs"), so run metadata must be able to distinguish them.
   - `git_commit`: the runner executes `git rev-parse HEAD` and writes the result (`null` if unavailable, e.g. in a non-git environment), making results traceable to a code version.

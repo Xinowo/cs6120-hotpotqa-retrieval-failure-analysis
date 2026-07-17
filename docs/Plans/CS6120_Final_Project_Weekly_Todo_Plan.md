@@ -48,7 +48,7 @@ Core metrics:
 - Any Evidence Recall@k / Evidence Hit@k
 - Full Evidence Recall@k
 - Partial Evidence Recall@k
-- MRR
+- MRR@10 (primary) and MRR@50 (deep-ranking diagnostic)
 
 Note: if tables abbreviate Any Evidence Recall@k as Recall@k, the report should explicitly define it as “whether at least one mapped gold evidence paragraph appears in the top-k retrieved passages.”
 
@@ -107,7 +107,7 @@ Every agent session must be logged (see session-log rule below), and agent-gener
 
 | Component / task | Why |
 |---|---|
-| `evaluator.py` metric logic (Any/Full/Partial Evidence Recall, MRR) | The evidence coverage metrics are the project's evaluation methodology — a core intellectual contribution. |
+| `evaluator.py` metric logic (Any/Full/Partial Evidence Recall, reciprocal rank used for MRR@10/MRR@50) | The evidence coverage metrics are the project's evaluation methodology — a core intellectual contribution. |
 | `failure_analyzer.py` decision rules | The failure taxonomy and its operational labeling rules (including the first-hop-only vs missing-bridge-entity disambiguation) are the project's main research contribution. |
 | Fine-tuning pair construction and training loop (if the extension is chosen) | Training loop logic is explicitly listed as not permitted for agents. |
 | Manual failure labeling and qualitative example analysis | Error analysis is research content. |
@@ -283,10 +283,11 @@ This week should turn the prototype into a real experiment pipeline.
   - Any Evidence Recall@k / Evidence Hit@k
   - Full Evidence Recall@k
   - Partial Evidence Recall@k
-  - MRR
+  - MRR@10 (primary) and MRR@50 (pooled deep-ranking diagnostic)
 - Run BM25 on 100 examples.
 - Then run BM25 on 500 examples if runtime is acceptable.
 - Run BM25 in **both corpus settings** (pooled primary, per-question contrast).
+- Save BM25 top-50 titles in pooled formal results so its rank-11–50 behavior is directly comparable with Dense and rerank.
 - Save BM25 results to CSV (`results/bm25_results.csv`), following the finalized results-CSV schema: `docs/specs/2026-07-15-results-csv-schema.md`. **Coding agents must read that spec before writing any results CSV** — it fixes the column set, `1`/`0` booleans, the `" | "` title separator, and the per-setting k policy.
 - Make the experiment runner reproducible.
 
@@ -297,7 +298,7 @@ This week should turn the prototype into a real experiment pipeline.
   - The pooled corpus must be built once in `data_loader.py` and passed to both retrievers, so BM25 and dense query the identical paragraph set.
 - Standardize result format across BM25 and dense retrieval, and across both corpus settings.
   - Every result CSV row must carry a `setting` field (`pooled` / `per_question`) in addition to method, example id, and metrics, so downstream analysis and figures can filter by setting.
-  - **Done (Xin, 7/15):** schema finalized in `docs/specs/2026-07-15-results-csv-schema.md` — long format, one row per (method, setting, example); one file per method with an identical column set. Both retrievers' result CSVs (and Week 3's `rerank_results.csv`) must follow it.
+  - **Done (Xin, 7/15; amended 7/17):** schema finalized in `docs/specs/2026-07-15-results-csv-schema.md` — long format, one row per (method, setting, example); one file per method with an identical column set; pooled rows store top-50 for BM25, Dense, and rerank. Per-example RR fields are explicit at 10 and 50.
 - Reporting rule for tables: pooled setting reports k = 2, 5, 10; per-question setting reports k = 2 only (k = 5 near ceiling, k = 10 trivially 100%).
 - Check whether gold evidence matching is correct.
 - Generate the first main results table.
@@ -316,10 +317,10 @@ results/main_results_v1.csv
 
 The main results table should look like:
 
-| Method | Any Evidence Recall@2 | Any Evidence Recall@5 | Any Evidence Recall@10 | Full Evidence Recall@2 | Full Evidence Recall@5 | Full Evidence Recall@10 | Partial Evidence Recall@5 | MRR |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| BM25 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| Dense | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| Method | Any Evidence Recall@2 | Any Evidence Recall@5 | Any Evidence Recall@10 | Full Evidence Recall@2 | Full Evidence Recall@5 | Full Evidence Recall@10 | Partial Evidence Recall@5 | MRR@10 | MRR@50 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| BM25 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| Dense | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
 
 ## Week 2 Checkpoint
 
@@ -567,7 +568,7 @@ What does Any Evidence Recall@k / Evidence Hit@k measure?
 Why is Any Evidence Recall@k insufficient for multi-hop QA?
 What does Full Evidence Recall@k measure?
 What does Partial Evidence Recall@k measure?
-What does MRR measure?
+What do MRR@10 and MRR@50 measure, and why is @10 primary?
 How does BM25 retrieve passages?
 How does dense retrieval retrieve passages?
 How does the cross-encoder reranker score candidates, and how is that different from the bi-encoder?
@@ -659,4 +660,3 @@ Bridge and comparison questions fail in different ways.
 Dense retrieval can help with lexical mismatch but can also drift semantically.
 BM25 can be strong on exact entity overlap but weak on paraphrases.
 ```
-
