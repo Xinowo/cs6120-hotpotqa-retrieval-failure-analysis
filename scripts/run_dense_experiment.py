@@ -166,7 +166,7 @@ def main(n, split, setting, k, out_path):
     df.to_csv(out_path, index=False)
     print(f"Saved {len(df)} rows to {out_path}\n")
 
-    print(f"Overall DENSE Any Evidence Recall@k ({setting}, n={len(examples)}):")
+    print(f"Overall DENSE retrieval metrics ({setting}, n={len(examples)}):")
     for metric, value in aggregate_results(per_example_metrics).items():
         print(f"  {metric}: {value:.3f}")
 

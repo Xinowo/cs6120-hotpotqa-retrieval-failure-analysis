@@ -270,7 +270,7 @@ def main(n, split, setting, top_k_max, run_id, runs_root):
     print(f"  metrics.json  : {RETRIEVER_NAME}")
     print(f"  config.json   : corpus_setting={setting}, git_commit={config['git_commit']}\n")
 
-    print(f"Overall {RETRIEVER_NAME.upper()} Any Evidence Recall@k "
+    print(f"Overall {RETRIEVER_NAME.upper()} retrieval metrics "
           f"({setting}, n={len(examples)}):")
     for metric, value in metrics_by_retriever[RETRIEVER_NAME].items():
         print(f"  {metric}: {value:.3f}")

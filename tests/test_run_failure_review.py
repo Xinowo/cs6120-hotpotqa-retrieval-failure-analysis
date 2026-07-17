@@ -125,9 +125,15 @@ def test_retriever_record_metrics_cover_all_metric_ks():
     ranked = DenseRetriever(ex.paragraphs, encoder=fake_encode).retrieve(ex.question, top_k=10)
     record = build_retriever_record(ranked, ex.gold_titles)
 
-    assert set(record["metrics"]) == {f"any_evidence_recall@{k}" for k in METRIC_KS}
-    # 'Cats' is the top hit, so recall is True at every cutoff.
-    assert all(record["metrics"].values())
+    # The runner forwards evaluator.evaluate_example unchanged. The evaluator
+    # now emits Full/Partial Recall + MRR alongside Any Evidence Recall, so this
+    # plumbing test asserts the fixed-k any_evidence_recall cutoffs the HTML
+    # filter relies on are present -- not an exact key set that would break
+    # whenever the evaluator gains another metric.
+    any_recall_keys = {f"any_evidence_recall@{k}" for k in METRIC_KS}
+    assert any_recall_keys <= set(record["metrics"])
+    # 'Cats' is the top hit, so any-evidence recall is True at every cutoff.
+    assert all(record["metrics"][key] for key in any_recall_keys)
 
 
 # ---- build_details_record ---------------------------------------------------
@@ -158,7 +164,10 @@ def test_run_dense_per_question_produces_one_record_per_example():
         assert list(record["retrievers"]) == [RETRIEVER_NAME]
     # per_example_metrics is the dense metric dict, usable by aggregate_results.
     for m in per_example_metrics:
-        assert set(m) == {f"any_evidence_recall@{k}" for k in METRIC_KS}
+        # any_evidence_recall cutoffs present for every fixed k (the evaluator
+        # forwards extra metrics too -- see the note in
+        # test_retriever_record_metrics_cover_all_metric_ks).
+        assert {f"any_evidence_recall@{k}" for k in METRIC_KS} <= set(m)
 
 
 def test_run_dense_per_question_empty_examples():
@@ -227,7 +236,7 @@ def test_write_run_creates_three_files_with_complete_fields():
         with open(os.path.join(run_dir, "metrics.json"), encoding="utf-8") as f:
             metrics = json.load(f)
         assert set(metrics) == {RETRIEVER_NAME}
-        assert set(metrics[RETRIEVER_NAME]) == {f"any_evidence_recall@{k}" for k in METRIC_KS}
+        assert {f"any_evidence_recall@{k}" for k in METRIC_KS} <= set(metrics[RETRIEVER_NAME])
 
 
 def test_build_config_git_commit_none_is_preserved():
