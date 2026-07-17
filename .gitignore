@@ -13,6 +13,13 @@ docs/Weekly_Progress_to_be_submitted/
 docs/specs/*.zh.md
 .claude
 
+# Failure-review run directories (large intermediate products: details.jsonl
+# carries full paragraph text, plus generated failures_review.html). Code
+# version is already traceable via config.json's git_commit, so runs are not
+# committed. The formal results/dense_results.csv and the hand-annotated
+# results/annotations/ stay tracked -- only results/runs/ is ignored.
+results/runs/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
