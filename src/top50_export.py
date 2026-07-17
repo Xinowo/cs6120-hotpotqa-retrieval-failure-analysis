@@ -57,7 +57,18 @@ def build_top50_rows_from_batches(examples, batches) -> List[dict]:
     `rank` is 1-based within each example. Row count is the sum over examples of
     len(batch); with a batch of top_k candidates that is len(examples) * top_k.
     An empty `examples`/`batches` yields an empty list.
+
+    `examples` and `batches` must be the same length: they are aligned
+    positionally, so a mismatch means batch i does not belong to example i.
+    We raise instead of relying on `zip`, which would silently truncate to the
+    shorter sequence and drop or misalign questions without any error.
     """
+    if len(examples) != len(batches):
+        raise ValueError(
+            f"examples and batches must be the same length, got "
+            f"{len(examples)} examples and {len(batches)} batches; they are "
+            f"aligned positionally so a mismatch would drop or misalign rows."
+        )
     rows = []
     for example, results in zip(examples, batches):
         for rank, (paragraph, score) in enumerate(results, start=1):
