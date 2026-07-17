@@ -4,7 +4,7 @@
 
 **When Multi-Hop Retrieval Fails: A Failure Analysis of BM25, Dense Retrieval, and Reranking on HotpotQA**
 
-This is the title submitted in the proposal (docs/Local/Plans/proposal.md); reranking is part of the committed core scope.
+This is the title submitted in the proposal; reranking is part of the committed core scope.
 
 ---
 
@@ -67,7 +67,7 @@ AI-policy note: the metric definitions and their core computation logic in `eval
 
 ### Optional Extension
 
-Reranking is core (committed in docs/Local/Plans/proposal.md), **not** optional. Only one optional extension remains, added only if the core project including the reranker is on track:
+Reranking is core (committed in the submitted proposal), **not** optional. Only one optional extension remains, added only if the core project including the reranker is on track:
 
 - Contrastive fine-tuning of the dense retriever on HotpotQA train-split pairs, evaluated **per failure category** (which failures does fine-tuning fix, which persist). Training-pair construction and training loop must be hand-written per the AI policy. Must not compete with the reranker or the presentation for time: the go/no-go decision happens in Week 4, **after the 7/28 presentation**, and its results go into the report only.
 
