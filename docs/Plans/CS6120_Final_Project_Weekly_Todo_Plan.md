@@ -372,7 +372,7 @@ It should answer:
 - Find distractor entity examples.
 - Implement disagreement case extractor.
 - Extend the evaluator with reranker rescue/damage counting (compare gold coverage in top-k before vs after reranking).
-- Export failure cases to CSV. *(To be discussed with Jiajun: Xin is building structured per-run outputs (`results/runs/<run_id>/details.jsonl`, task F1a, expected during Week 2); once that lands, this export could be derived from it instead of re-implementing the filtering. Suggestion: hold off implementing this script until F1a's first real run is available, to avoid rework — task content unchanged until discussed.)*
+- Export failure cases to CSV. *(To be discussed with Jiajun: the failure-review runner now writes structured per-run outputs (`results/runs/<run_id>/details.jsonl`); the code has landed, first real run still pending. Once a run exists, this export could be derived from it instead of re-implementing the filtering. Suggestion: hold off implementing this script until that first real run is available, to avoid rework — task content unchanged until discussed.)*
 - Prepare BM25 interpretation notes.
 
 ## Shared Tasks
