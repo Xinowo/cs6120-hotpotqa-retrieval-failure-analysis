@@ -1,15 +1,12 @@
 # Local-only docs (personal notes / already-distributed material / Chinese-language files).
+# All local-only docs now live under docs/Local/ (concepts, analysis, From_Professor,
+# Weekly_Progress_to_be_submitted, Plans/proposal.md, Plans/Xin_Implementation_Plan.md).
 # Everything else under docs/ IS tracked and shared with Teammate:
 #   docs/Plans/ joint plan + scope + idea docs.
 # Note: Xin's own completion logs are kept local-only (docs/Completion_Log/Xin_*);
 #   the folder itself stays shared (README.md) for teammates' own logs.
-docs/concepts/
-docs/analysis/
-docs/From_Professor/
-docs/Plans/proposal.md
-docs/Plans/Xin_Implementation_Plan.md
+docs/Local/
 docs/Completion_Log/Xin_*
-docs/Weekly_Progress_to_be_submitted/
 docs/specs/*.zh.md
 .claude
 

@@ -4,7 +4,7 @@
 
 **When Multi-Hop Retrieval Fails: A Failure Analysis of BM25, Dense Retrieval, and Reranking on HotpotQA**
 
-This is the title submitted in the proposal (docs/Plans/proposal.md). Reranking is named in the proposal's title and proposed solution, so it is part of the committed core scope, not an optional extension.
+This is the title submitted in the proposal (docs/Local/Plans/proposal.md). Reranking is named in the proposal's title and proposed solution, so it is part of the committed core scope, not an optional extension.
 
 ---
 
@@ -22,7 +22,7 @@ The core project is:
 
 > **BM25 vs Dense Retrieval vs Dense + Reranking + Evidence Coverage Metrics + Failure Analysis**
 
-Reranking is part of the core scope because the submitted proposal (docs/Plans/proposal.md) commits to it in both the title and the proposed solution. The reranker uses an off-the-shelf cross-encoder (no training), so it adds evaluation work but no training risk.
+Reranking is part of the core scope because the submitted proposal (docs/Local/Plans/proposal.md) commits to it in both the title and the proposed solution. The reranker uses an off-the-shelf cross-encoder (no training), so it adds evaluation work but no training risk.
 
 The project focuses on **evidence retrieval**, not full answer generation.
 
@@ -240,7 +240,7 @@ Dense retrieval connects directly to representation learning:
 
 ### 6.3 Dense Retrieval + Reranking
 
-Reranking is the third core method, committed in the submitted proposal (docs/Plans/proposal.md).
+Reranking is the third core method, committed in the submitted proposal (docs/Local/Plans/proposal.md).
 
 A reranker takes the top-N passages from dense retrieval and reorders them with a stronger relevance model. Use an off-the-shelf cross-encoder (e.g. `cross-encoder/ms-marco-MiniLM-L-6-v2`); no training is required.
 
