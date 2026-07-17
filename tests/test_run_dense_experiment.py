@@ -264,6 +264,44 @@ def test_main_top50_out_writes_export_consistent_with_results(monkeypatch, tmp_p
         assert ex_rows["title"].tolist() == pooled.loc[eid, "retrieved_titles"].split(" | ")
 
 
+def test_main_top50_out_retrieves_pooled_index_exactly_once(monkeypatch, tmp_path):
+    """The export must be built from the SAME pooled retrieval as the results
+    CSV, never a second pass. Spy on the pooled retriever's retrieve_many and
+    assert it fires exactly once even when --top50-out is set (a regression
+    here would mean the export re-queried the index, risking tie-break drift)."""
+    from src.dense_retriever import DenseRetriever
+
+    calls = {"n": 0}
+    original = DenseRetriever.retrieve_many
+
+    def counting_retrieve_many(self, *args, **kwargs):
+        calls["n"] += 1
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(DenseRetriever, "retrieve_many", counting_retrieve_many)
+
+    examples = [
+        make_example("q_cat", "cat", {"Cats"}),
+        make_example("q_fish", "fish", {"Fishes"}),
+    ]
+    monkeypatch.setattr(runner, "load_examples", lambda **_kwargs: examples)
+    monkeypatch.setattr(runner, "_warm_encoder", lambda _examples: fake_encode)
+    monkeypatch.setattr(
+        runner, "build_pooled_corpus", lambda _examples: (make_pooled_corpus(), [])
+    )
+    out = tmp_path / "dense_results.csv"
+    top50 = tmp_path / "dense_top50_pooled.csv"
+
+    runner.main(
+        n=2, split="validation", setting="both",
+        k=None, out_path=str(out), top50_out=str(top50),
+    )
+
+    # One batched pass over the shared pooled index, reused for both artifacts;
+    # per_question uses retrieve_titles, so it does not add a retrieve_many call.
+    assert calls["n"] == 1
+
+
 def test_main_top50_out_requires_pooled(monkeypatch):
     # --top50-out is meaningless without pooled; reject before loading data.
     def _boom(*a, **k):

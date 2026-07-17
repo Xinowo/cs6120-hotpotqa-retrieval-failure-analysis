@@ -19,6 +19,7 @@ import tempfile
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from src.data_loader import HotpotExample, Paragraph
 from src.dense_retriever import DenseRetriever
@@ -157,6 +158,39 @@ def test_from_batches_empty_yields_no_rows():
     assert build_top50_rows_from_batches([], []) == []
 
 
+def test_from_batches_length_mismatch_raises():
+    """examples and batches are aligned positionally, so a length mismatch
+    would silently drop or misalign questions under plain zip. It must raise
+    instead -- both when there are more examples than batches and vice versa."""
+    examples = make_examples()  # 2 examples
+
+    # More examples than batches: plain zip would drop example q2.
+    with pytest.raises(ValueError):
+        build_top50_rows_from_batches(examples, [[]])
+
+    # More batches than examples: plain zip would drop the extra batch.
+    with pytest.raises(ValueError):
+        build_top50_rows_from_batches(examples, [[], [], []])
+
+
+def test_full_top_50_gives_exactly_50_rows_per_example_when_corpus_large():
+    """The pooled contract: with a corpus of at least 50 paragraphs and the
+    default top_k=50, every example contributes EXACTLY 50 rows (this is what
+    makes the formal export's row count == n_questions * 50)."""
+    paragraphs = [
+        Paragraph(title=f"P{i}", text=("cat " * (i + 1))) for i in range(60)
+    ]
+    retriever = DenseRetriever(paragraphs, encoder=fake_encode)
+    examples = make_examples()  # 2 questions
+
+    rows = build_top50_rows(retriever, examples, top_k=TOP_K)  # TOP_K == 50
+
+    assert len(rows) == len(examples) * 50
+    for ex in examples:
+        ex_rows = [r for r in rows if r["example_id"] == ex.example_id]
+        assert len(ex_rows) == 50
+
+
 def test_default_top_k_is_50():
     assert TOP_K == 50
 
@@ -201,6 +235,8 @@ if __name__ == "__main__":
     test_empty_examples_yields_no_rows()
     test_from_batches_matches_wrapper()
     test_from_batches_empty_yields_no_rows()
+    test_from_batches_length_mismatch_raises()
+    test_full_top_50_gives_exactly_50_rows_per_example_when_corpus_large()
     test_default_top_k_is_50()
     test_write_csv_round_trip_preserves_schema_and_values()
     test_write_empty_rows_still_writes_header_only_csv()
