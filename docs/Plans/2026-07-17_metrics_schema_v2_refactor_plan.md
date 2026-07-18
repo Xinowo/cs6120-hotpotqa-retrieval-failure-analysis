@@ -29,7 +29,8 @@ team-visible contracts, tests, and decisions must be reflected in tracked files 
   again immediately before final acceptance.
 - Before freezing changes to `RESULT_COLUMNS`, paths, manifests, CLI defaults, or report-facing interfaces, align the
   contract with the BM25 collaborator.
-- Keep this plan and the Draft PR checklist current as stages finish; a code-complete claim alone is not an exit gate.
+- Use this tracked plan as the single source of truth for progress. Leave the Draft PR body unchanged during staged
+  implementation, then update it once with final evidence before marking the PR ready for review.
 
 ## 3. Baseline and hard gates
 
@@ -74,27 +75,28 @@ legacy only -> dual-write -> raw/eval comparison -> v2 default -> legacy retirem
 
 ## 5. Eight implementation stages
 
-Each stage ends with tests, review evidence in the Draft PR, and one scoped commit before the next stage begins.
+Each stage ends with tests and one scoped commit before the next stage begins. Check off the stage here only after its
+acceptance gate passes; do not duplicate this progress checklist in the Draft PR.
 
-1. **Document raw retrieval and evaluation v2 contracts.**
-   Freeze directory layout, `rankings.csv`, raw/eval manifests, per-example output, aggregate output, IDs, versions,
-   and storage-to-report naming mappings.
-2. **Add schema constants, validators, and offline tests.**
-   Use synthetic fixtures; keep existing runners, evaluator core logic, and formal artifacts unchanged.
-3. **Add raw ranking writers and dual-write runner support.**
-   Integrate Dense and BM25 without making v2 paths the only defaults or invoking retrieval a second time.
-4. **Generate and validate formal n=500 raw retrieval runs.**
-   Validate all method/setting bundles, manifests, row counts, checksums, saved depth, and zero ordering mismatches.
-5. **Integrate the team-authored per-example evaluator v2.**
-   Begin only after the metric-definition freeze and golden examples pass; compare all unchanged and changed metrics.
-6. **Add aggregate evaluation v2 and report-label mapping.**
-   Aggregate only from validated per-example artifacts; record traceability, denominators, `n_valid`, and versions.
-7. **Migrate downstream consumers.**
-   Move reranker, failure review, summary, analysis, and annotation inputs to raw plus eval artifacts without duplicate
-   metric implementations.
-8. **Cut over defaults and retire the active legacy workflow.**
-   Update CLI behavior and documentation only after all comparisons pass; retain recoverable legacy history and a
-   migration record.
+- [ ] **Stage 1 — Document raw retrieval and evaluation v2 contracts.**
+  Freeze directory layout, `rankings.csv`, raw/eval manifests, per-example output, aggregate output, IDs, versions,
+  and storage-to-report naming mappings.
+- [ ] **Stage 2 — Add schema constants, validators, and offline tests.**
+  Use synthetic fixtures; keep existing runners, evaluator core logic, and formal artifacts unchanged.
+- [ ] **Stage 3 — Add raw ranking writers and dual-write runner support.**
+  Integrate Dense and BM25 without making v2 paths the only defaults or invoking retrieval a second time.
+- [ ] **Stage 4 — Generate and validate formal n=500 raw retrieval runs.**
+  Validate all method/setting bundles, manifests, row counts, checksums, saved depth, and zero ordering mismatches.
+- [ ] **Stage 5 — Integrate the team-authored per-example evaluator v2.**
+  Begin only after the metric-definition freeze and golden examples pass; compare all unchanged and changed metrics.
+- [ ] **Stage 6 — Add aggregate evaluation v2 and report-label mapping.**
+  Aggregate only from validated per-example artifacts; record traceability, denominators, `n_valid`, and versions.
+- [ ] **Stage 7 — Migrate downstream consumers.**
+  Move reranker, failure review, summary, analysis, and annotation inputs to raw plus eval artifacts without duplicate
+  metric implementations.
+- [ ] **Stage 8 — Cut over defaults and retire the active legacy workflow.**
+  Update CLI behavior and documentation only after all comparisons pass; retain recoverable legacy history and a
+  migration record.
 
 ## 6. Definition of Done and final merge gate
 
