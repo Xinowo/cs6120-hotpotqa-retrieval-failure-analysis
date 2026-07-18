@@ -17,6 +17,10 @@ Empty cells in the input (e.g. any_evidence_recall@10 for the per_question
 setting, which the schema K policy leaves uncomputed) are NaN and are skipped
 by the mean, leaving that group's cell blank in the summary.
 
+Every requested input must exist and match src.results_schema.RESULT_COLUMNS
+exactly, including column order. This keeps incomplete or stale formal result
+files from producing a plausible-looking partial summary.
+
 Usage:
     python scripts/summarize_results.py
     python scripts/summarize_results.py --inputs results/dense_results.csv results/bm25_results.csv
@@ -32,7 +36,11 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 import pandas as pd
 
-from src.results_schema import RECALL_COLUMNS, RECIPROCAL_RANK_COLUMNS
+from src.results_schema import (
+    RECALL_COLUMNS,
+    RECIPROCAL_RANK_COLUMNS,
+    RESULT_COLUMNS,
+)
 
 # Group means of these per-example reciprocal ranks are MRR@K by definition.
 RR_TO_MRR = {
@@ -44,24 +52,51 @@ METRIC_COLUMNS = RECALL_COLUMNS + RECIPROCAL_RANK_COLUMNS
 DEFAULT_INPUTS = ["results/dense_results.csv", "results/bm25_results.csv"]
 
 
+def validate_result_schema(columns, source):
+    """Require the exact formal result schema and report useful differences."""
+    actual = list(columns)
+    if actual == RESULT_COLUMNS:
+        return
+
+    missing = [column for column in RESULT_COLUMNS if column not in actual]
+    unexpected = [column for column in actual if column not in RESULT_COLUMNS]
+    differences = []
+    if missing:
+        differences.append(f"missing columns: {missing}")
+    if unexpected:
+        differences.append(f"unexpected columns: {unexpected}")
+    if not missing and not unexpected:
+        differences.append("columns are not in RESULT_COLUMNS order")
+    raise ValueError(
+        f"{source} does not match RESULT_COLUMNS ({'; '.join(differences)})"
+    )
+
+
 def load_inputs(paths):
-    """Concatenate the given result CSVs, keeping only rows we can group."""
+    """Load and concatenate complete, schema-valid formal result CSVs."""
+    missing_paths = [str(path) for path in paths if not os.path.exists(path)]
+    if missing_paths:
+        raise FileNotFoundError(
+            f"Missing input result CSV(s): {', '.join(missing_paths)}"
+        )
+
     frames = []
     for path in paths:
-        if not os.path.exists(path):
-            print(f"  (skipping missing input: {path})")
-            continue
-        frames.append(pd.read_csv(path))
-    if not frames:
-        raise SystemExit("No input result CSVs found; nothing to summarize.")
+        frame = pd.read_csv(path)
+        validate_result_schema(frame.columns, path)
+        frames.append(frame)
     return pd.concat(frames, ignore_index=True)
 
 
 def summarize(df: pd.DataFrame, group_by) -> pd.DataFrame:
     """Mean of each metric column within each group; NaN cells stay blank."""
-    metric_cols = [c for c in METRIC_COLUMNS if c in df.columns]
+    validate_result_schema(df.columns, "input dataframe")
+    missing_group_columns = [column for column in group_by if column not in df.columns]
+    if missing_group_columns:
+        raise ValueError(f"Unknown group-by column(s): {missing_group_columns}")
+
     counts = df.groupby(group_by, dropna=False).size().rename("n")
-    means = df.groupby(group_by, dropna=False)[metric_cols].mean()
+    means = df.groupby(group_by, dropna=False)[METRIC_COLUMNS].mean()
     summary = pd.concat([counts, means], axis=1).reset_index()
     return summary.rename(columns=RR_TO_MRR)
 
