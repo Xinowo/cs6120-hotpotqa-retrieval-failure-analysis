@@ -28,6 +28,10 @@ be concatenated or joined on `example_id` without method-specific handling.
 The implementation source of truth for column order and storage depths is
 `src/results_schema.py`.
 
+For metric computation, executable evaluator code and tests take precedence.
+This schema freezes how those values are stored and compared across methods;
+the Scope document supplies the report-level interpretation.
+
 ## Columns
 
 | # | Column | Type | Values / format | Notes |
@@ -45,6 +49,20 @@ The implementation source of truth for column order and storage depths is
 | 15–17 | `partial_evidence_recall@{2,5,10}` | float | `[0,1]` \| empty | per-question @10 is empty |
 | 18 | `reciprocal_rank_at_10` | float | `[0,1]` | per-example value; aggregate name is MRR@10 |
 | 19 | `reciprocal_rank_at_50` | float | `[0,1]` | per-example value; aggregate name is MRR@50 |
+
+`partial_evidence_recall@k` is fractional gold-evidence coverage, not a binary
+"some but not all" indicator. For unique gold-title set `G` and the titles in
+the first `k` results `R_k`:
+
+```text
+partial_evidence_recall@k = |G ∩ R_k| / |G|
+```
+
+A separate derived concept, **Incomplete Evidence Indicator@k**, is
+`1(0 < |G ∩ R_k| < |G|)`; its dataset mean is **Incomplete Evidence Rate@k**
+(or Partial-Only Rate@k). It is useful for failure analysis but is not added to
+the frozen `RESULT_COLUMNS` schema. Any implementation belongs to the team's
+hand-written evaluation methodology.
 
 The single-example fields use `reciprocal_rank_*`, not `mrr_*`, because the
 mean is computed only during aggregation. `@` remains in recall-column names
@@ -77,6 +95,13 @@ aggregation therefore skips them.
 
 Formal runners must not silently use a method-specific storage depth. In
 particular, BM25 cannot remain at top-10 while Dense stores top-50.
+
+The pooled top-50 depth is part of the frozen experiment protocol, not a
+runtime tuning knob. If resources are constrained, reduce the number of
+questions, batch or cache work, or use a smaller model. A future top-20 run
+would require an explicit new protocol version, rerunning every affected
+method, and separate reporting rather than direct comparison in the top-50
+main table.
 
 Reporting policy:
 

@@ -6,6 +6,8 @@
 
 This is the title submitted in the proposal; reranking is part of the committed core scope.
 
+Authority note: this file reports tasks and execution status. It must not redefine evaluator behavior or the frozen experiment protocol; executable code/tests and `docs/specs/2026-07-15-results-csv-schema.md` take precedence, while the Scope document is the narrative source of truth.
+
 ---
 
 ## Core Scope
@@ -47,8 +49,10 @@ Core metrics:
 
 - Any Evidence Recall@k / Evidence Hit@k
 - Full Evidence Recall@k
-- Partial Evidence Recall@k
+- Partial Evidence Recall@k: fractional coverage `|G ∩ R_k| / |G|`
 - MRR@10 (primary) and MRR@50 (deep-ranking diagnostic)
+
+Keep the fractional coverage metric distinct from **Incomplete Evidence Rate@k**, the proportion of questions satisfying `0 < |G ∩ R_k| < |G|`. The latter captures "some but not all" cases and is a derived failure-analysis metric, not a column in the frozen `RESULT_COLUMNS` schema. Any implementation of it is team-authored evaluation methodology.
 
 Note: if tables abbreviate Any Evidence Recall@k as Recall@k, the report should explicitly define it as “whether at least one mapped gold evidence paragraph appears in the top-k retrieved passages.”
 
@@ -108,7 +112,7 @@ Every agent session must be logged (see session-log rule below), and agent-gener
 | Component / task | Why |
 |---|---|
 | `evaluator.py` metric logic (Any/Full/Partial Evidence Recall, reciprocal rank used for MRR@10/MRR@50) | The evidence coverage metrics are the project's evaluation methodology — a core intellectual contribution. |
-| `failure_analyzer.py` decision rules | The failure taxonomy and its operational labeling rules (including the first-hop-only vs missing-bridge-entity disambiguation) are the project's main research contribution. |
+| `failure_analyzer.py` decision rules | Candidate-taxonomy refinement and any operational labeling rules (including first-hop-only vs missing-bridge-entity disambiguation) are part of the project's main research contribution. Rules are written only after open-ended case review and only for categories with defensible observable conditions. |
 | Fine-tuning pair construction and training loop (if the extension is chosen) | Training loop logic is explicitly listed as not permitted for agents. |
 | Manual failure labeling and qualitative example analysis | Error analysis is research content. |
 | Report: research questions, results interpretation, failure analysis, discussion | AI may only proofread and reword; it may not produce the intellectual content. |
@@ -167,7 +171,7 @@ Jiajun's core contribution can be framed as:
 Both Xin and Jiajun should contribute to:
 
 ```text
-Final failure taxonomy
+Candidate-taxonomy refinement and final taxonomy
 Qualitative example selection
 Final report editing
 Presentation slides
@@ -317,6 +321,8 @@ results/main_results_v1.csv
 
 The main results table should look like:
 
+`Partial Evidence Recall@5` in this table means mean fractional gold-evidence coverage. Report Incomplete Evidence Rate@k separately in failure-analysis tables rather than treating it as the same metric.
+
 | Method | Any Evidence Recall@2 | Any Evidence Recall@5 | Any Evidence Recall@10 | Full Evidence Recall@2 | Full Evidence Recall@5 | Full Evidence Recall@10 | Partial Evidence Recall@5 | MRR@10 | MRR@50 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | BM25 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
@@ -373,13 +379,14 @@ It should answer:
 - Find distractor entity examples.
 - Implement disagreement case extractor.
 - Extend the evaluator with reranker rescue/damage counting (compare gold coverage in top-k before vs after reranking).
-- Export failure cases to CSV. *(To be discussed with Jiajun: the failure-review runner now writes structured per-run outputs (`results/runs/<run_id>/details.jsonl`); the code has landed, first real run still pending. Once a run exists, this export could be derived from it instead of re-implementing the filtering. Suggestion: hold off implementing this script until that first real run is available, to avoid rework — task content unchanged until discussed.)*
+- Export failure cases to CSV. *(The first formal pooled failure-review run on n=500 has been completed and validated in `results/runs/2026-07-17_a/`. It contains the Dense + BM25 failure-review artifacts for the current n=500 analysis subset; this does not mean the final three-method comparative experiment is complete, which remains subject to the frozen experiment protocol. Derive any additional export from `details.jsonl` rather than re-implementing retrieval or filtering.)*
 - Prepare BM25 interpretation notes.
 
 ## Shared Tasks
 
-- Finalize failure taxonomy.
-- Write explicit decision rules for each failure category (including the first-hop-only vs missing-bridge-entity disambiguation rule) and validate them against ~20 manually labeled examples. The manual labels live in `results/annotations/annotations.csv` (column schema: `docs/specs/2026-07-12-failure-review-pipeline-design.md` §6.1) — the shared contract is the CSV format, not the tool; label via Xin's HTML review page or any editor. **AI policy: these rules and their implementation in `failure_analyzer.py` are the project's core research contribution and must be hand-written by team members, not generated by a coding agent.**
+- Make an explicit team-authored go/no-go decision on **Incomplete Evidence Rate@k** before freezing report tables: either hand-implement and validate it as a separate derived metric, or state that it is defined conceptually but not reported in this project. Do not silently treat Partial Evidence Recall@k as this rate.
+- Conduct open-ended case review with free-text labels, then refine, merge, or split the candidate taxonomy based on recurring patterns.
+- Operationalize selected categories with explicit rules only where reliable observable conditions exist, then manually validate those assignments against ~20 labeled examples. The manual labels live in `results/annotations/annotations.csv` (column schema: `docs/specs/2026-07-12-failure-review-pipeline-design.md` §6.1) — the shared contract is the CSV format, not the tool; label via Xin's HTML review page or any editor. **AI policy: taxonomy refinement, these rules, and their implementation in `failure_analyzer.py` are core research contributions and must be written by team members, not generated by a coding agent.**
 - Select 10–20 qualitative examples.
 - Build bridge vs comparison result table.
 - Build disagreement cases table.
@@ -388,9 +395,9 @@ It should answer:
 - Start writing Results and Failure Analysis notes (these feed both the slides and the report). **AI policy: results interpretation and failure analysis are research content — write them yourselves; AI may only proofread.**
 - Update the AI session log (docs/Completion_Log/) for any coding-agent sessions this week.
 
-## Failure Taxonomy
+## Candidate Failure Taxonomy
 
-Use these failure categories:
+Use the following six categories as a candidate taxonomy and sensitizing framework during review. Reviewers first record free-text observations without forcing a category, then refine, merge, or split categories based on recurring patterns. Categories such as semantic drift and lexical mismatch may require text inspection and must not be presented as fully automatic labels without a defensible operational definition.
 
 | Failure mode | Meaning |
 |---|---|
@@ -567,14 +574,15 @@ Both team members should be able to answer:
 What does Any Evidence Recall@k / Evidence Hit@k measure?
 Why is Any Evidence Recall@k insufficient for multi-hop QA?
 What does Full Evidence Recall@k measure?
-What does Partial Evidence Recall@k measure?
+What does fractional Partial Evidence Recall@k measure?
+How does Incomplete Evidence Rate@k differ from Partial Evidence Recall@k?
 What do MRR@10 and MRR@50 measure, and why is @10 primary?
 How does BM25 retrieve passages?
 How does dense retrieval retrieve passages?
 How does the cross-encoder reranker score candidates, and how is that different from the bi-encoder?
 Why can dense retrieval fail through semantic drift?
 Why can BM25 fail through lexical mismatch?
-Why can a reranker never rescue evidence that dense retrieval left out of the top-N candidate set?
+Why can the reranker never rescue evidence that dense retrieval left out of the fixed pooled top-50 candidate set?
 What is a reranker rescue and a reranker damage case?
 ```
 
@@ -636,7 +644,7 @@ Is the final package clean and reproducible?
 |---|---|---|---|---|
 | Week 1, 7/7–7/13 | Run first retrieval loop | Dense prototype | Data loader + BM25 + basic Any Evidence Recall@k | 10-example debug output |
 | Week 2, 7/14–7/20 | Complete core experiments | Dense stable + pooled/distractor 500-example runs | Evaluator + BM25 pooled/distractor runs + pooled corpus build | Main results table v1 + stability checkpoint |
-| Week 3, 7/21–7/27 | Reranker + failure analysis + slides (**presentation 7/28**) | Reranker implementation + dense semantic drift + bridge/comparison | BM25 lexical mismatch + disagreement extractor + rescue/damage metrics | Failure-labeling rules + qualitative examples + slide snapshot ~7/26 + rehearsed slides |
+| Week 3, 7/21–7/27 | Reranker + failure analysis + slides (**presentation 7/28**) | Reranker implementation + dense semantic drift + bridge/comparison | BM25 lexical mismatch + disagreement extractor + rescue/damage metrics | Open-ended labels + candidate-taxonomy refinement + selected operational rules + qualitative examples + slide snapshot ~7/26 + rehearsed slides |
 | Week 4, 7/28–8/3 | **Present 7/28**, then freeze experiments and demo | Present + fine-tuning decision/work (if chosen) + discussion draft | Final runner + demo.py + README | Final CSV/tables/figures + feedback notes + report skeleton |
 | Week 5, 8/4–8/10 | Finish report | Discussion + failure analysis writing | Dataset/method/eval writing | Report v2 + AI declaration |
 | Final, 8/11–8/14 | Clean submission | Proofread | Clone test + package | Final submission (8/14) |

@@ -4,17 +4,17 @@
 
 Prepared as a reusable project-description document for future planning conversations.
 
-Scope synchronization note, updated 2026-07-07:
+Scope synchronization note, updated 2026-07-17:
 
-This is an early idea reference. The final project scope has been narrowed to **BM25 vs dense retrieval, evidence coverage metrics, and failure analysis**. Reranking is now an optional extension only. *(Superseded on 2026-07-12: reranking is back in the core scope; see the 2026-07-12 note below.)* Full answer generation, query decomposition, hybrid retrieval, full Wikipedia retrieval, and chunking experiments are out of scope unless the core project is already complete.
+This is an early idea reference, not a current specification. The committed core scope is **BM25 vs dense retrieval vs dense retrieval with cross-encoder reranking, evidence coverage metrics, and failure analysis**. Fine-tuning is the sole optional extension. Full answer generation, query decomposition, hybrid retrieval, full Wikipedia retrieval, and chunking experiments remain out of scope.
 
 Scope synchronization note, updated 2026-07-10:
 
 Three further decisions are recorded in the Scope document:
 
 1. **Corpus settings.** The primary experimental setting is now a **pooled corpus** built by merging all evaluation questions' context paragraphs (deduplicated by title). The original per-question distractor setting is kept only as a contrast condition, because with ~10 candidate paragraphs Recall@10 is trivially 100% and k = 5 is near ceiling.
-2. **Optional extension priority.** The preferred optional extension is now **contrastive fine-tuning of the dense retriever** on HotpotQA train-split pairs, evaluated per failure category (which failures fine-tuning repairs, which persist). The reranker is demoted to a secondary optional extension; at most one extension is chosen at the Week 2 decision point. *(Superseded on 2026-07-12: the reranker is core, not an extension; fine-tuning is the sole optional extension.)* Per the course AI policy, fine-tuning code must be hand-written by team members.
-3. **Taxonomy operationalization.** The failure categories must be assigned by explicit rule-based decision rules (including a disambiguation rule between first-hop-only and missing-bridge-entity failures), validated against manually labeled examples.
+2. **Optional extension priority.** Contrastive fine-tuning of the dense retriever is the sole optional extension. The reranker is part of the core project and uses dense top-50 candidates in the pooled setting. Per the course AI policy, fine-tuning code must be hand-written by team members.
+3. **Taxonomy refinement.** Reviewers first record free-text observations, then converge on a candidate taxonomy. Selected categories may be operationalized with team-written rules and manually validated where feasible; text-dependent categories must not be forced into unreliable automatic labels.
 
 Sections below were updated on 2026-07-12 to reflect the current scope (reranking as the third core method); if anything still conflicts, the Scope document wins.
 
@@ -22,13 +22,13 @@ Scope synchronization note, updated 2026-07-12:
 
 The submitted proposal commits to reranking in both its title and proposed solution. Reranking is therefore **restored to the core scope** as the third core method (off-the-shelf cross-encoder, e.g. `cross-encoder/ms-marco-MiniLM-L-6-v2`, no training; dense top-50 candidates in the pooled setting, all candidates in the per-question setting), with rescue/damage analysis as a core deliverable scheduled for Week 3. This supersedes the 2026-07-10 note's demotion of the reranker. Fine-tuning of the dense retriever remains the sole optional extension and must not compete with the reranker for time.
 
-Consistency note: the **Scope document is the source of truth**. This Idea document provides background and reusable framing, while the Weekly Todo document is the execution plan. Metric naming, evidence matching, and failure taxonomy should follow the Scope document.
+Consistency note: executable code/tests and the frozen experiment protocol take precedence for computation and storage; the **Scope document is the narrative source of truth**. This Idea document provides historical background and reusable framing, while plans and handoff notes report execution status. Metric interpretation follows Scope, and field/candidate-depth details follow the frozen schema.
 
 ---
 
 ## 1. One-Sentence Summary
 
-This project studies why retrieval systems fail in multi-hop question answering by comparing BM25 lexical retrieval, dense retrieval, and dense retrieval with cross-encoder reranking on HotpotQA, then diagnosing failures through evidence coverage metrics and a structured failure taxonomy.
+This project studies why retrieval systems fail in multi-hop question answering by comparing BM25 lexical retrieval, dense retrieval, and dense retrieval with cross-encoder reranking on HotpotQA, then diagnosing failures through evidence coverage metrics and a candidate taxonomy refined from open-ended case review.
 
 ---
 
@@ -75,7 +75,7 @@ This topic fits the CS6120 final project format because it has a clear NLP probl
 | Prior work | RAG, BM25, dense passage retrieval, reranking, HotpotQA, multi-hop QA, evidence retrieval. |
 | Methods | BM25 retriever, dense retriever, and dense retrieval with cross-encoder reranking (all three core, per the proposal). |
 | Dataset | HotpotQA provides questions, answers, contexts, question types, difficulty levels, and gold supporting facts. |
-| Results | Any Evidence Recall@k / Evidence Hit@k, MRR, Full Evidence Recall@k, and Partial Evidence Recall@k, grouped by question type, plus reranker rescue/damage rates. |
+| Results | Any Evidence Recall@k / Evidence Hit@k, MRR@10/MRR@50, Full Evidence Recall@k, Partial Evidence Recall@k as fractional coverage, and derived Incomplete Evidence Rate@k where reported, grouped by question type, plus reranker rescue/damage rates. |
 | Discussion | Failure taxonomy, qualitative examples, strengths and limitations of each retrieval method. |
 | Code | Can be organized into data loader, retriever classes, evaluator, failure analyzer, and demo.py. |
 
@@ -139,19 +139,22 @@ The project can be implemented as a retrieval-focused RAG diagnostic pipeline:
 |---|---|---|
 | Any Evidence Recall@k / Evidence Hit@k | Whether at least one mapped gold evidence paragraph appears in the top-k results. If abbreviated as Recall@k in tables, the report should explicitly define it this way. | Basic evidence hit metric, but insufficient for multi-hop QA by itself. |
 | Full Evidence Recall@k | Whether all required mapped gold evidence paragraphs are retrieved within top-k. | Crucial for multi-hop QA because partial retrieval may still fail. |
-| Partial Evidence Recall@k | Whether some, but not all, required mapped gold evidence paragraphs are retrieved within top-k. | Captures first-hop-only and incomplete comparison failures. |
-| MRR | How highly the first mapped gold evidence paragraph is ranked. | Measures ranking quality, not just presence. |
+| Partial Evidence Recall@k | Fraction of unique gold evidence titles retrieved within top-k: `|G ∩ R_k| / |G|`, ranging from 0 to 1. | Measures evidence-coverage depth rather than a binary partial-only condition. |
+| Incomplete Evidence Rate@k | Mean of `1(0 < |G ∩ R_k| < |G|)` across questions; a derived analysis metric, not a frozen result-schema column. | Measures how often retrieval finds some but not all required evidence. |
+| MRR@10 / MRR@50 | How highly the first mapped gold evidence paragraph is ranked within the primary and diagnostic horizons. | Measures ranking quality, not just presence. |
 | Reranker rescue rate | Cases where gold evidence is outside top-k before reranking but inside top-k after reranking. | Shows when reranking helps. |
 | Reranker damage rate | Cases where gold evidence is inside top-k before reranking but pushed out after reranking. | Shows when reranking hurts evidence coverage. |
 | Failure type distribution | How often each failure category occurs. | Turns raw errors into interpretable findings. |
 
 ---
 
-## 10. Failure Taxonomy
+## 10. Candidate Failure Taxonomy
+
+The categories below are a sensitizing framework for review, not mandatory labels imposed in advance. Reviewers first record free-text observations, then refine, merge, or split categories based on recurring patterns. Selected categories are operationalized with team-written rules and manually validated where feasible; semantic drift and lexical mismatch may still require text inspection.
 
 | Failure mode | Description | Typical signal |
 |---|---|---|
-| First-hop-only failure | The retriever finds the document/entity explicitly mentioned in the question but misses the second supporting document. | Partial Evidence Recall@k but not Full Evidence Recall@k. |
+| First-hop-only failure | The retriever finds the document/entity explicitly mentioned in the question but misses the second supporting document. | `0 < Partial Evidence Recall@k < 1`, plus manual or operational evidence that the retrieved passage corresponds to the explicit first hop. |
 | Missing bridge entity | The retrieved first-hop evidence contains or implies a bridge entity, but the system does not retrieve evidence about that bridge entity. | Bridge questions fail despite one relevant passage being retrieved. |
 | Comparison coverage failure | A comparison question requires evidence for two entities, but retrieval covers only one. | One supporting entity appears, the other is missing. |
 | Lexical mismatch | BM25 fails because the question and evidence use different surface forms. | Dense retrieval succeeds where BM25 fails. |
@@ -167,11 +170,11 @@ The project can be implemented as a retrieval-focused RAG diagnostic pipeline:
 Core experiment plan:
 
 - Run BM25, dense retrieval, and dense + reranking on the same HotpotQA subset.
-- Compute Any Evidence Recall@k / Evidence Hit@k, MRR, Full Evidence Recall@k, and Partial Evidence Recall@k for k = 2, 5, and 10.
+- Compute Any Evidence Recall@k / Evidence Hit@k, MRR@10/MRR@50, Full Evidence Recall@k, and fractional Partial Evidence Recall@k for the protocol-defined horizons; report derived Incomplete Evidence Rate@k separately when team-authored analysis code is available.
 - Compare results overall and by HotpotQA question type: bridge vs comparison.
 - Identify examples where methods disagree, such as BM25 succeeds but dense fails, dense succeeds but BM25 fails, both partially succeed, or both fail.
 - Analyze reranker rescue and damage cases.
-- Manually inspect representative cases and assign failure types using the taxonomy.
+- Manually inspect representative cases, record free-text observations, converge on a candidate taxonomy, and only then operationalize and validate selected categories.
 
 Optional extension plan, decided at the Week 4 decision point (after the 7/28 final presentation), only if the core project is stable:
 
@@ -219,7 +222,7 @@ Recommended demo output sections:
 - Gold answer and gold supporting facts, if available
 - Top-k retrieved passages from BM25, dense retrieval, and dense + reranking
 - Per-example metrics such as Any Evidence Recall@k and Full Evidence Recall@k
-- Failure diagnosis using the taxonomy
+- Free-text failure-review observations plus the refined candidate taxonomy, where available
 
 ---
 
@@ -250,9 +253,9 @@ Suggested classes:
 - `HotpotQADataLoader`: loads and preprocesses HotpotQA examples and corpus passages.
 - `BM25Retriever`: implements lexical retrieval.
 - `DenseRetriever`: implements embedding-based retrieval.
-- `RerankerRetriever`: reranks dense top-N candidates with an off-the-shelf cross-encoder and computes rescue/damage cases.
-- `RetrievalEvaluator`: computes Any Evidence Recall@k / Evidence Hit@k, MRR, Full Evidence Recall@k, and Partial Evidence Recall@k.
-- `FailureAnalyzer`: assigns rule-based diagnostic labels to retrieval outcomes.
+- `CrossEncoderReranker`: receives and reorders the candidate set produced by dense retrieval (fixed top-50 pooled, all candidates per-question); it is not an independent retriever and cannot recover evidence outside that set.
+- `RetrievalEvaluator`: computes Any Evidence Recall@k / Evidence Hit@k, MRR@10/MRR@50, Full Evidence Recall@k, and fractional Partial Evidence Recall@k; a separate team-authored analysis may derive Incomplete Evidence Rate@k.
+- `FailureAnalyzer`: assigns diagnostic labels only where the team has defined and manually validated reliable observable rules; otherwise it exports cases for manual review.
 
 ---
 
@@ -262,7 +265,7 @@ Suggested classes:
 |---|---|
 | Xin | Dense retrieval, dense retrieval experiments, dense failure analysis, semantic drift examples, bridge-vs-comparison analysis, and report discussion. |
 | Teammate | HotpotQA data loader, BM25 baseline, evaluator, experiment runner, code packaging, README, and demo support. |
-| Shared | Final failure taxonomy, qualitative example selection, presentation slides, final report editing, code explanation test, and AI usage declaration. |
+| Shared | Open-ended failure review, candidate-taxonomy refinement, qualitative example selection, presentation slides, final report editing, code explanation test, and AI usage declaration. |
 
 ---
 
@@ -278,8 +281,8 @@ We propose to study retrieval failure modes in multi-hop question answering usin
 |---|---|
 | The project becomes a generic baseline comparison. | Emphasize failure taxonomy, controlled analysis, and example-level diagnosis. |
 | Full answer generation becomes too time-consuming. | Keep answer generation out of scope and focus on evidence retrieval. |
-| Reranker or dense retrieval is slow. | Use a manageable subset, cache embeddings/results, and if needed reduce the pooled reranking candidate depth (e.g. N = 20); the reranker itself is core and cannot be cut. |
-| Failure analysis becomes too subjective. | Use rule-based diagnostic categories first, then manually inspect representative examples. |
+| Reranking the fixed top-50 candidate pool or dense retrieval is slow. | Use a manageable frozen subset, batching, caching, or a smaller model. Do not change the fixed top-50 pooled protocol within the same experiment version. |
+| Failure analysis becomes too subjective. | Begin with open-ended free-text review, converge on a candidate taxonomy across cases, then operationalize and manually validate selected categories where feasible. |
 | Too many experiments. | Prioritize BM25, dense retrieval, evidence coverage metrics, and question-type analysis. |
 
 ---

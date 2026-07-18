@@ -12,7 +12,7 @@ The current Week 1 debug scripts (`scripts/run_week1_debug.py`, `scripts/run_wee
 
 1. **No designated place where failures are recorded**: the overall recall summary is only printed to the terminal and lost once the run ends; there is no run metadata (n, split, model, time), so results are not traceable.
 2. **`results/*.csv` is too high-level for manual debugging**: top-k titles are joined with `|` inside a single cell, so it is hard to see at which rank a gold title landed; there is only the True/False of recall@k — no gold hit ranks, no retrieval scores, no paragraph text — yet judging semantic drift / lexical mismatch requires reading the gold and top-k texts side by side.
-3. **No landing place for manual classification (annotation)**: Week 3's failure analysis needs ~20 manually labeled examples to validate `failure_analyzer.py`, and there is currently no file or process to hold those annotations.
+3. **No landing place for manual classification (annotation)**: Week 3's failure analysis needs open-ended labeled examples to refine the candidate taxonomy and later validate selected `failure_analyzer.py` rules, and there is currently no file or process to hold those annotations.
 
 ## 2. Goals and non-goals
 
@@ -20,11 +20,12 @@ The current Week 1 debug scripts (`scripts/run_week1_debug.py`, `scripts/run_wee
 
 - Every retrieval run produces structured, traceable, complete results (data layer).
 - Provide an annotator-friendly failure review interface: gold highlighting, hit ranks, collapsible text, filtering (view layer).
-- Manual classification starts as **free-text labels**, persisted to a standalone `annotations.csv`, which serves as the human-labeled validation set for Week 3's `failure_analyzer.py` (annotation layer).
+- Manual classification starts as **free-text labels**, persisted to a standalone `annotations.csv`. These observations support candidate-taxonomy refinement and later validation of selected operational rules in Week 3's `failure_analyzer.py` (annotation layer).
 
 **Non-goals**
 
-- No fixed taxonomy is presupposed: fill in free-form labels first, then converge to fixed categories after reviewing a batch of failures (convergence adds a small "label normalization" step; the `annotations.csv` structure is unchanged).
+- No fixed taxonomy is presupposed: fill in free-form labels first, then refine, merge, or split recurring patterns into a candidate taxonomy after reviewing a batch of failures (convergence adds a small "label normalization" step; the `annotations.csv` structure is unchanged).
+- Not every diagnostic category must become an automatic rule. Text-dependent judgments such as semantic drift or lexical mismatch remain manual unless the team defines and validates a defensible observable condition.
 - No server and no new dependencies (no Streamlit / notebook server); the HTML is a pure static single file.
 - The `failure_analyzer.py` decision rules are not implemented within this design (a Week 3 task, and part of what the AI boundary requires to be hand-written).
 
@@ -114,7 +115,7 @@ Core principle: **Python computes, HTML only displays.** All evaluation quantiti
 | example_id | HotpotQA question id |
 | retriever | bm25 / dense |
 | k | the smallest k this retriever misses (consistent with the card export rule) |
-| label | free text (normalized to the fixed taxonomy later) |
+| label | free text (normalized to the converged candidate taxonomy later) |
 | notes | remarks |
 | annotator | who annotated (Xin / Jiajun). Filled in once at the top of the page and written into every exported row; in a two-person project, discussing annotation disagreements when validating failure_analyzer requires knowing who labeled what |
 | annotated_at | when this entry was last modified (ISO 8601, recorded automatically by the page) |
@@ -123,8 +124,8 @@ After export, a human places the file into `results/annotations/` and commits it
 
 ### 6.2 Handoff to Week 3
 
-- `annotations.csv` is the carrier for the manual failure annotation and the `failure_analyzer.py` validation set;
-- after the taxonomy converges, add a small script or one manual pass to map free-form labels to the final categories (a new column or a new file; original labels are kept);
+- `annotations.csv` is the carrier for open-ended manual observations, candidate-taxonomy refinement, and validation data for selected `failure_analyzer.py` rules;
+- after the candidate taxonomy converges, add a small script or one manual pass to map free-form labels to the refined categories (a new column or a new file; original labels are kept);
 - case snippets for the report / slides are generated as markdown by a script from `details.jsonl` + `annotations.csv`, not copied out of the HTML.
 
 ## 7. AI-usage boundary split
@@ -132,7 +133,7 @@ After export, a human places the file into `results/annotations/` and commits it
 | Component | Location | Who writes it |
 |---|---|---|
 | recall@k, gold hit ranks, and all other evaluation quantities | `src/evaluator.py` (new gold_ranks computation) | **Xin, hand-written** |
-| failure decision rules | Week 3 `failure_analyzer.py` | **Xin, hand-written** |
+| selected failure decision rules, where operationalization is feasible | Week 3 `failure_analyzer.py` | **Xin, hand-written** |
 | runner rework; JSONL/CSV/JSON persistence | `scripts/` | agent-allowed |
 | `build_failure_report.py` + HTML/JS (rendering, filtering, highlighting, annotation, export) | `scripts/` | agent-allowed (pure display layer, no metric computation) |
 | tests for the plumbing above | `tests/` | agent-allowed |
