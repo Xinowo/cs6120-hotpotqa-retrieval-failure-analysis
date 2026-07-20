@@ -9,9 +9,10 @@ to a per-(method, setting) summary table.
 This script computes group means of columns that already exist in the input
 CSVs; it defines no metrics of its own. Per the project AI-use boundary, metric
 definitions and their per-example computation live in src/evaluator.py and are
-not touched here. The only naming convention applied is the schema's own rule
-that a per-example reciprocal_rank_at_K averaged over a group is reported as
-MRR@K (see src/results_schema.py).
+not touched here. The general summary applies the schema's rule that a group
+mean of reciprocal_rank_at_K is reported as MRR@K. The optional Week 2 main
+table additionally maps frozen storage identifiers to the approved
+report-facing aggregate names; it does not rename the source CSV columns.
 
 Empty cells in the input (e.g. any_evidence_recall@10 for the per_question
 setting, which the schema K policy leaves uncomputed) are NaN and are skipped
@@ -26,6 +27,7 @@ Usage:
     python scripts/summarize_results.py --inputs results/dense_results.csv results/bm25_results.csv
     python scripts/summarize_results.py --group-by method setting question_type
     python scripts/summarize_results.py --out results/summary_metrics.csv
+    python scripts/summarize_results.py --main-table --out results/main_results_v1.csv
 """
 
 import argparse
@@ -50,6 +52,23 @@ RR_TO_MRR = {
 METRIC_COLUMNS = RECALL_COLUMNS + RECIPROCAL_RANK_COLUMNS
 
 DEFAULT_INPUTS = ["results/dense_results.csv", "results/bm25_results.csv"]
+
+# Report-facing aggregate names for the Week 2 pooled main table. These do not
+# alter the frozen per-example storage identifiers in RESULT_COLUMNS.
+MAIN_TABLE_COLUMN_MAP = {
+    "method": "Method",
+    "any_evidence_recall@2": "Any Evidence Hit Rate@2",
+    "any_evidence_recall@5": "Any Evidence Hit Rate@5",
+    "any_evidence_recall@10": "Any Evidence Hit Rate@10",
+    "full_evidence_recall@2": "Full Evidence Hit Rate@2",
+    "full_evidence_recall@5": "Full Evidence Hit Rate@5",
+    "full_evidence_recall@10": "Full Evidence Hit Rate@10",
+    "partial_evidence_recall@5": "Evidence Recall@5",
+    "MRR@10": "MRR@10",
+    "MRR@50": "MRR@50",
+}
+MAIN_TABLE_METHOD_LABELS = {"bm25": "BM25", "dense": "Dense"}
+MAIN_TABLE_COLUMNS = list(MAIN_TABLE_COLUMN_MAP.values())
 
 
 def validate_result_schema(columns, source):
@@ -101,6 +120,50 @@ def summarize(df: pd.DataFrame, group_by) -> pd.DataFrame:
     return summary.rename(columns=RR_TO_MRR)
 
 
+def build_main_table(df: pd.DataFrame) -> pd.DataFrame:
+    """Build the report-facing pooled BM25-vs-Dense Week 2 main table."""
+    validate_result_schema(df.columns, "input dataframe")
+    pooled = df[
+        (df["setting"] == "pooled")
+        & (df["method"].isin(MAIN_TABLE_METHOD_LABELS))
+    ].copy()
+
+    missing_methods = [
+        method
+        for method in MAIN_TABLE_METHOD_LABELS
+        if method not in set(pooled["method"])
+    ]
+    if missing_methods:
+        raise ValueError(f"Main table missing pooled method(s): {missing_methods}")
+
+    ids_by_method = {
+        method: set(group["example_id"])
+        for method, group in pooled.groupby("method")
+    }
+    duplicate_methods = [
+        method
+        for method, group in pooled.groupby("method")
+        if len(group) != group["example_id"].nunique()
+    ]
+    if duplicate_methods:
+        raise ValueError(
+            f"Main table inputs contain duplicate pooled example IDs: {duplicate_methods}"
+        )
+    if ids_by_method["bm25"] != ids_by_method["dense"]:
+        raise ValueError("BM25 and Dense pooled example ID sets do not match")
+
+    summary = summarize(pooled, ["method", "setting"])
+    order = {method: index for index, method in enumerate(MAIN_TABLE_METHOD_LABELS)}
+    summary = summary.sort_values(
+        "method", key=lambda values: values.map(order)
+    ).reset_index(drop=True)
+    table = summary[list(MAIN_TABLE_COLUMN_MAP)].rename(
+        columns=MAIN_TABLE_COLUMN_MAP
+    )
+    table["Method"] = table["Method"].map(MAIN_TABLE_METHOD_LABELS)
+    return table[MAIN_TABLE_COLUMNS]
+
+
 def to_markdown(summary: pd.DataFrame) -> str:
     """Render as a GitHub-flavored table without requiring the 'tabulate' dep."""
     cols = list(summary.columns)
@@ -120,16 +183,22 @@ def to_markdown(summary: pd.DataFrame) -> str:
     return "\n".join(lines)
 
 
-def main(inputs, group_by, out_path):
+def main(inputs, group_by, out_path, main_table=False):
     df = load_inputs(inputs)
-    summary = summarize(df, group_by)
+    summary = build_main_table(df) if main_table else summarize(df, group_by)
 
-    print("\nSummary (group means; RR means shown as MRR@K):\n")
+    heading = (
+        "Pooled main results table (report-facing aggregate names)"
+        if main_table
+        else "Summary (group means; RR means shown as MRR@K)"
+    )
+    print(f"\n{heading}:\n")
     print(to_markdown(summary))
 
     if out_path:
         os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
-        summary.to_csv(out_path, index=False)
+        float_format = "%.3f" if main_table else None
+        summary.to_csv(out_path, index=False, float_format=float_format)
         print(f"\nSaved summary ({len(summary)} groups) to {out_path}")
 
 
@@ -143,6 +212,19 @@ if __name__ == "__main__":
                         help="Columns to group by (e.g. method setting question_type).")
     parser.add_argument("--out", type=str, default=None,
                         help="Optional path to write the summary CSV.")
+    parser.add_argument(
+        "--main-table",
+        action="store_true",
+        help=(
+            "Write the pooled BM25-vs-Dense Week 2 main table with "
+            "report-facing aggregate names and three-decimal values."
+        ),
+    )
     args = parser.parse_args()
 
-    main(inputs=args.inputs, group_by=args.group_by, out_path=args.out)
+    main(
+        inputs=args.inputs,
+        group_by=args.group_by,
+        out_path=args.out,
+        main_table=args.main_table,
+    )
