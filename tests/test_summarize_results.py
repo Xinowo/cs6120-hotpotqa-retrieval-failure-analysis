@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from scripts import summarize_results
+from scripts.reporting import summarize_results
 from src.results_schema import RESULT_COLUMNS
 
 

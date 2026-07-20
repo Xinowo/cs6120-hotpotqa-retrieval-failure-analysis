@@ -23,18 +23,20 @@ exactly, including column order. This keeps incomplete or stale formal result
 files from producing a plausible-looking partial summary.
 
 Usage:
-    python scripts/summarize_results.py
-    python scripts/summarize_results.py --inputs results/dense_results.csv results/bm25_results.csv
-    python scripts/summarize_results.py --group-by method setting question_type
-    python scripts/summarize_results.py --out results/summary_metrics.csv
-    python scripts/summarize_results.py --main-table --out results/main_results_v1.csv
+    python scripts/reporting/summarize_results.py
+    python scripts/reporting/summarize_results.py --inputs results/dense_results.csv results/bm25_results.csv
+    python scripts/reporting/summarize_results.py --group-by method setting question_type
+    python scripts/reporting/summarize_results.py --out results/summary_metrics.csv
+    python scripts/reporting/summarize_results.py --main-table --out results/main_results_v1.csv
 """
 
 import argparse
 import os
 import sys
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.insert(
+    0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+)
 
 import pandas as pd
 
