@@ -1,10 +1,13 @@
 # Retrieval Eval Schema v2
 
-**Author:** Xin · **Date:** 2026-07-20 · **Status:** Proposed contract — pending BM25-collaborator
-alignment before the Stage 2 implementation freeze
+**Author:** Xin · **Date:** 2026-07-20 · **Status:** Frozen for Stage 2 implementation
 **Applies to:** every evaluation bundle under `evals/<eval_id>/`
 **Layer:** automatic evaluation only. Aggregates are computed from an accepted per-example artifact, never
 recomputed directly from raw rankings.
+
+The remaining BM25-interface decisions were closed by owner-delegated review on 2026-07-20; separate collaborator
+sign-off is not required. The decision record is
+`docs/Local/Plans/2026-07-20_bm25_interface_alignment_checklist.md`.
 
 This document is the Stage 1 contract for the evaluation side of the metrics/schema v2 refactor. It fixes the
 physical file layout, column order, types, nullability, keys, and serialization of per-example and aggregate
@@ -37,12 +40,14 @@ evals/
     ├── manifest.json
     ├── per_example.csv
     ├── aggregate.csv
-    └── aggregate_by_question_type.csv    # generated only when requested
+    ├── aggregate_by_question_type.csv    # generated only when requested
+    └── aggregate_by_level.csv            # generated only when requested
 ```
 
-`aggregate_by_<dimension>.csv` is the general subgroup pattern; `question_type` is the primary dimension and
-`level` uses `aggregate_by_level.csv` with the identical tidy-long shape. The default `aggregate.csv` groups
-only by `method + setting`.
+The only v2 subgroup dimensions are `question_type` and `level`, materialized as
+`aggregate_by_question_type.csv` and `aggregate_by_level.csv`. The default `aggregate.csv` groups only by
+`method + setting`. Adding another subgroup dimension changes the physical contract and requires a new
+eval-schema version.
 
 ## `eval_id` grammar and collision policy
 
@@ -93,7 +98,7 @@ Metadata columns:
 | 9 | `question_type` | str | no | `bridge` \| `comparison` |
 | 10 | `level` | str | no | `easy` \| `medium` \| `hard` |
 | 11 | `gold_title_count` | int | no | `|G_q|`, always ≥ 1 (empty gold is rejected upstream) |
-| 12 | `retrieved_depth` | int | no | saved rank depth actually available for this example |
+| 12 | `retrieved_depth` | int | no | number of source raw ranking rows for this example; always ≥ 1 |
 
 Metric columns (exact identifiers, in this order):
 
@@ -161,7 +166,8 @@ Rules:
 
 Identical tidy-long shape as `aggregate.csv` plus one grouping column (`question_type` or `level`) inserted
 after `setting`. Key uniqueness extends to `(eval_id, method, setting, <dimension>, metric_name)`. Metric
-definitions and identifiers are unchanged across dimensions.
+definitions and identifiers are unchanged across dimensions. No other `aggregate_by_*.csv` filename is valid
+under `retrieval_eval_schema_v2`.
 
 ## `manifest.json`
 
@@ -173,17 +179,61 @@ definitions and identifiers are unchanged across dimensions.
 | `metric_definition_version` | string | yes | no | `retrieval_metrics_v2` |
 | `evaluation_protocol_version` | string | yes | no | `hotpotqa_retrieval_protocol_v2` |
 | `eval_id` | string | yes | no | matches the directory and every eval row |
-| `created_at` | string | yes | no | ISO-8601 UTC |
+| `created_at` | string | yes | no | UTC `YYYY-MM-DDTHH:MM:SSZ`; no fractional seconds |
 | `source_retrieval_run_id` | string | yes | no | the single raw run consumed |
-| `source_rankings_sha256` | string | yes | no | that raw run's `rankings.csv` checksum |
+| `source_rankings_sha256` | string | yes | no | 64 lowercase hexadecimal characters; that raw run's `rankings.csv` checksum |
 | `dataset_identifier` | string | yes | no | dataset name/version |
-| `dataset_fingerprint` | string | yes | no | fingerprint of the gold dataset snapshot |
+| `dataset_fingerprint` | string | yes | no | `sha256:<64 lowercase hex>` matching the accepted raw run's loaded dataset snapshot |
 | `gold_mapping_version_or_fingerprint` | string | yes | no | gold-title mapping version or fingerprint |
-| `k_policy` | object | yes | no | cutoffs/horizons per setting (hit/recall @2,@5,@10; RR@10,@50) |
-| `aggregation_groups` | array of strings | yes | no | groups materialized, e.g. `["method+setting", "question_type"]` |
+| `k_policy` | object | yes | no | exact closed shape and values defined below |
+| `aggregation_groups` | array of strings | yes | no | exact generated grouping set and order defined below |
 | `evaluator_git_commit` | string | yes | no | code commit that produced the eval |
 | `command` | string | yes | no | exact command line |
-| `artifact_sha256` | object (string → string) | yes | no | file name → SHA-256; keys include only files actually generated |
+| `artifact_sha256` | object (string → string) | yes | no | exact generated filename set → 64-character lowercase hexadecimal SHA-256 |
+
+All manifest fields are non-null. All unconstrained provenance strings in the table must be non-empty strings.
+The manifest permits no additional top-level fields under `retrieval_eval_schema_v2`; duplicate JSON object keys
+are invalid.
+
+### `k_policy` shape
+
+The value is exactly:
+
+```json
+{
+  "insufficient_depth_policy": "reject_unless_corpus_exhausted",
+  "per_question": {
+    "computed_hit_recall_cutoffs": [2, 5],
+    "reciprocal_rank_horizons": [10, 50],
+    "uncomputed_hit_recall_cutoffs": [10]
+  },
+  "pooled": {
+    "computed_hit_recall_cutoffs": [2, 5, 10],
+    "reciprocal_rank_horizons": [10, 50],
+    "uncomputed_hit_recall_cutoffs": []
+  }
+}
+```
+
+No key, value, or array order may differ under `hotpotqa_retrieval_protocol_v2`.
+
+### `aggregation_groups` and artifact-key shape
+
+`aggregation_groups` always starts with `"method+setting"`, followed by zero or more subgroup names in this
+fixed order: `"question_type"`, then `"level"`. Values are unique; no other value is valid. Thus the complete
+set of valid arrays is:
+
+```text
+["method+setting"]
+["method+setting", "question_type"]
+["method+setting", "level"]
+["method+setting", "question_type", "level"]
+```
+
+`artifact_sha256` contains `per_example.csv` and `aggregate.csv` exactly once. It contains
+`aggregate_by_question_type.csv` if and only if `question_type` is listed, and `aggregate_by_level.csv` if and
+only if `level` is listed. No other key is allowed. `manifest.json` is deliberately excluded because including
+its own checksum would be self-referential.
 
 `artifact_sha256` example:
 
@@ -198,12 +248,23 @@ definitions and identifiers are unchanged across dimensions.
 Serialization and checksum rules:
 
 ```text
-CSV:              UTF-8, comma-delimited, header row required, LF (\n) newlines, standard CSV quoting
-per_example order: source raw-run example order
-aggregate order:   group-key order, then the canonical metric order listed above
-manifest.json:     UTF-8 object, keys sorted, one trailing newline
-artifact_sha256:   SHA-256 over the exact serialized bytes of each named file
+CSV bytes:          UTF-8 without BOM; comma delimiter; header required; LF (\n) record terminator
+CSV dialect:        quotechar='"', doublequote=true, escapechar absent, QUOTE_MINIMAL
+integer text:       base-10 ASCII, no leading '+' and no leading zero except the value 0
+float text:         Python format(value, '.17g'), lowercase exponent, with negative zero normalized to 0
+null text:          zero bytes between delimiters (an empty cell)
+per_example order:  the source rankings.csv example order, then one row per example
+default aggregate:  the single method + setting group, then canonical metric order listed above
+question_type order: bridge, comparison; within each value, canonical metric order
+level order:         easy, medium, hard; within each value, canonical metric order
+manifest bytes:     json.dumps(obj, ensure_ascii=False, allow_nan=False, sort_keys=True,
+                    separators=(',', ':')) encoded as UTF-8 without BOM, followed by one LF
+artifact_sha256:    SHA-256 over the exact serialized bytes of each named file
 ```
+
+CSV string values are passed through unchanged; the fixed dialect quotes fields containing a comma, quote, CR, or
+LF and doubles an embedded quote. The per-example source order is mechanically available from the raw contract,
+whose rows are ordered by ascending `example_id` and then rank. These rules apply before checksum calculation.
 
 Provenance rules:
 
@@ -211,18 +272,24 @@ Provenance rules:
   raw retrieval run, a dataset/gold snapshot, and the three frozen versions.
 - Aggregation reads only the accepted per-example artifact (`artifact_sha256["per_example.csv"]`), never the raw
   rankings, to recompute question-level metrics.
+- The eval `dataset_identifier` and `dataset_fingerprint` must equal the source raw manifest values. Cross-method
+  comparisons additionally require equal `setting`, `dataset_identifier`, `dataset_fingerprint`,
+  `example_ids_fingerprint`, and `corpus_fingerprint` in the referenced raw manifests. Corpus fingerprints match
+  across methods within a setting; pooled and per-question fingerprints are not compared to each other.
 
 ## Layer-separation invariants
 
 - Per-example identifiers use `indicator` / `reciprocal_rank`; aggregate identifiers use `rate` /
   `mean_reciprocal_rank`. `MRR` is a presentation label only (metric spec §5.3), never a stored identifier. No
   field named like `mrr` or `mrr_for_example` may appear at the per-example layer.
+- Dense, BM25, and Rerank use one evaluator implementation and one eval contract. The metric calculation has no
+  method-specific branch: `method` and raw `score_type` are provenance, while ranked titles plus the frozen gold
+  mapping determine metric values.
 - No eval file contains raw-only columns (`rank`, `title`, `score`), and no raw file contains any eval column.
 - Validators reject a legacy-only identifier appearing in any active eval column.
 
-## Alignment status
+## Freeze status
 
-This is a proposed contract. Per the refactor policy (HANDOFF §6, plan working-branch policy), the eval column
-sets, `eval_id` grammar, tidy-long aggregate shape, subgroup file layout, and manifest fields must be confirmed
-with the BM25 collaborator before the Stage 2 schema constants/validators freeze them. Until then, only offline
-schema work proceeds.
+The eval column sets, `eval_id` grammar, tidy-long aggregate shape, subgroup file layout, manifest fields, shared
+evaluator rule, and comparison provenance gates are frozen for Stage 2 implementation. Any incompatible physical
+or semantic change requires an explicit schema/protocol amendment rather than an implementation-time choice.

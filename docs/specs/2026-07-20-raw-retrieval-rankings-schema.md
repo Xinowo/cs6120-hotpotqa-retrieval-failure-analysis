@@ -1,9 +1,12 @@
 # Raw Retrieval Rankings Schema (v1)
 
-**Author:** Xin · **Date:** 2026-07-20 · **Status:** Proposed contract — pending BM25-collaborator
-alignment before the Stage 2 implementation freeze
+**Author:** Xin · **Date:** 2026-07-20 · **Status:** Frozen for Stage 2 implementation
 **Applies to:** every raw retrieval/reranker run bundle under `results/retrieval_runs/<retrieval_run_id>/`
 **Layer:** raw retrieval output only. This layer never stores gold, metrics, or failure labels.
+
+The remaining BM25-interface decisions were closed by owner-delegated review on 2026-07-20; separate collaborator
+sign-off is not required. The decision record is
+`docs/Local/Plans/2026-07-20_bm25_interface_alignment_checklist.md`.
 
 This document is the Stage 1 contract for the raw side of the metrics/schema v2 refactor. It fixes the physical
 file layout, column order, types, nullability, keys, and serialization of raw retrieval rankings and their run
@@ -93,13 +96,14 @@ Constraints:
 - `rank` starts at `1` and increases by exactly `1` within each `example_id`.
 - `(retrieval_run_id, example_id, rank)` is unique.
 - Every `score` is a finite float. A missing score makes the file `legacy_raw_schema_v0`, not raw v1.
-- For a `pooled` run, every example has exactly `retrieval_depth` rows. A pooled saved list shorter than
-  `retrieval_depth` is valid only when the pooled corpus itself is smaller (`corpus_size < retrieval_depth`),
-  which the manifest establishes.
+- For a `pooled` run, every example has exactly `min(retrieval_depth, corpus_size)` rows. The v2 protocol requests
+  `retrieval_depth = 50`; therefore a formal corpus with at least 50 entries has exactly 50 ranks per example.
 - For a `per_question` run, every example saves its complete mini-corpus:
   `saved_depth(example) == per_example_corpus_size(example)`. An example whose ranking was capped below its
   full mini-corpus (`saved_depth < per_example_corpus_size`) is an invalid raw artifact, because the corpus was
-  not exhausted and deep metrics such as RR@50 would be miscomputed on a truncated list.
+  not exhausted and deep metrics such as RR@50 would be miscomputed on a truncated list. The writer requests
+  `top_k = per_example_corpus_size(example)`; there is no per-question storage cap, including when a mini-corpus
+  contains more than 50 entries.
 
 The raw layer must never contain any of:
 
@@ -113,8 +117,10 @@ report-facing display names
 ### `question` policy
 
 Rankings store only `example_id`. The manifest records the dataset identifier and fingerprint, and evaluation
-reloads the same dataset snapshot by ID. If external dataset reproducibility is required, save a separate
-`queries.jsonl` keyed by `example_id`; question text is never repeated on every candidate row.
+reloads the same dataset snapshot by ID. `retrieval_raw_schema_v1` permits exactly the two files in the directory
+layout above; `queries.jsonl` is not part of a v1 run bundle. If a future portability requirement needs stored query
+text, it must use a separately versioned schema that defines that file and its checksum. Question text is never
+repeated on every candidate row.
 
 ## `manifest.json`
 
@@ -125,62 +131,178 @@ reloads the same dataset snapshot by ID. If external dataset reproducibility is 
 |---|---|---|---|---|
 | `raw_schema_version` | string | yes | no | `retrieval_raw_schema_v1` (or `legacy_raw_schema_v0`) |
 | `retrieval_run_id` | string | yes | no | matches the directory and every rankings row |
-| `created_at` | string | yes | no | ISO-8601 UTC |
+| `created_at` | string | yes | no | UTC `YYYY-MM-DDTHH:MM:SSZ`; no fractional seconds |
 | `method` | string | yes | no | `bm25` \| `dense` \| `rerank`; matches rankings |
 | `setting` | string | yes | no | `pooled` \| `per_question`; matches rankings |
 | `split` | string | yes | no | e.g. `validation` |
 | `n_requested` | integer | yes | no | ≥ 1 |
 | `n_loaded` | integer | yes | no | ≥ 1; equals the distinct `example_id` count |
 | `retrieval_depth` | integer | yes | no | pooled fixed depth; per_question max per-example saved depth |
-| `score_type` | string | yes | no | `cosine_similarity` \| `bm25_okapi` \| `cross_encoder_logit` |
+| `score_type` | string | yes | no | method-matched: Dense=`cosine_similarity`, BM25=`bm25_okapi`, Rerank=`cross_encoder_logit` |
 | `score_direction` | string | yes | no | `higher_is_better` |
-| `model_or_retriever_config` | object | yes | no | model id / tokenizer / retriever configuration |
+| `model_or_retriever_config` | object | yes | no | exact closed shape defined below |
 | `dataset_identifier` | string | yes | no | dataset name/version |
-| `dataset_fingerprint` | string | yes | no | fingerprint of the loaded dataset snapshot |
-| `example_ids_fingerprint` | string | yes | no | fingerprint of the ordered evaluated `example_id` set |
-| `corpus_fingerprint` | string | yes | no | fingerprint of the corpus used for retrieval |
-| `corpus_size` | integer | pooled only | no | size of the shared pooled corpus; omitted for `per_question` |
-| `per_example_corpus_size` | object (string → integer) | per_question only | no | `example_id` → mini-corpus size; omitted for `pooled` |
-| `deduplication_policy` | string | yes | no | how duplicate/colliding titles are handled |
-| `tie_break_policy` | string | yes | no | deterministic tie-break rule for equal scores |
+| `dataset_fingerprint` | string | yes | no | `sha256:<64 lowercase hex>` of the canonical loaded dataset snapshot |
+| `example_ids_fingerprint` | string | yes | no | `sha256:<64 lowercase hex>` of the ordered evaluated `example_id` list |
+| `corpus_fingerprint` | string | yes | no | `sha256:<64 lowercase hex>` of the setting-specific ordered retrieval corpus |
+| `corpus_size` | integer | pooled only | no | positive size of the shared pooled corpus; omitted for `per_question` |
+| `per_example_corpus_size` | object (string → integer) | per_question only | no | exact ranked `example_id` set → positive mini-corpus size; omitted for `pooled` |
+| `deduplication_policy` | string | yes | no | one setting/method-matched closed identifier defined below |
+| `tie_break_policy` | string | yes | no | one method-matched closed identifier defined below |
 | `git_commit` | string | yes | no | code commit that produced the run |
 | `command` | string | yes | no | exact command line |
-| `rankings_sha256` | string | yes | no | SHA-256 of `rankings.csv` |
+| `rankings_sha256` | string | yes | no | 64 lowercase hexadecimal characters; SHA-256 of `rankings.csv` |
 | `parent_retrieval_run_id` | string | rerank only | no | the raw run whose candidates were reranked |
-| `parent_rankings_sha256` | string | rerank only | no | checksum of the parent `rankings.csv` |
-| `parent_candidate_depth` | integer | rerank only | no | number of parent candidates consumed per example |
+| `parent_rankings_sha256` | string | rerank only | no | 64 lowercase hexadecimal characters; checksum of the parent `rankings.csv` |
+| `parent_candidate_depth` | integer | rerank only | no | ≥ 1; fixed number of parent candidates consumed per example |
+
+Conditional fields are omitted when their condition is false; they are never serialized as JSON `null`.
+`per_example_corpus_size` has exactly `n_loaded` keys, its key set equals the distinct `example_id` set in
+`rankings.csv`, and every value is an integer ≥ 1. All unconstrained provenance strings in the table must be
+non-empty strings. A `retrieval_raw_schema_v1` manifest has no additional top-level fields and duplicate JSON
+object keys are invalid. The migration adapter owns the separate complete shape for `legacy_raw_schema_v0`.
+
+### Fingerprints and corpus policies
+
+Fingerprint input uses canonical JSON bytes with no trailing newline:
+
+```text
+json.dumps(value, ensure_ascii=False, allow_nan=False, sort_keys=True,
+           separators=(',', ':')).encode('utf-8')
+```
+
+The stored value is `sha256:` followed by the SHA-256 lowercase hexadecimal digest of those exact bytes.
+
+- `dataset_fingerprint` hashes the JSON array of the complete loaded raw dataset records, in selected dataset
+  order, before conversion to `HotpotExample`.
+- `example_ids_fingerprint` hashes the JSON array of `example_id` strings in that same selected dataset order.
+- For `pooled`, `corpus_fingerprint` hashes the post-deduplication JSON array of
+  `{"title": <string>, "text": <string>}` objects in corpus input order.
+- For `per_question`, `corpus_fingerprint` hashes the selected-order JSON array of
+  `{"example_id": <string>, "paragraphs": [{"title": <string>, "text": <string>}, ...]}` objects, with each
+  paragraph array in source context order.
+
+Formal Dense and BM25 comparisons require equal `setting`, `dataset_identifier`, `dataset_fingerprint`,
+`example_ids_fingerprint`, and `corpus_fingerprint`. The corpus fingerprint must match across methods within one
+setting. It is not expected to match between `pooled` and `per_question`, whose corpora differ by design.
+
+Closed policy identifiers:
+
+| Condition | `deduplication_policy` | Behavior |
+|---|---|---|
+| Dense/BM25, `pooled` | `exact_title_keep_first_dataset_order` | remove later exact-title duplicates; the first loaded dataset/context occurrence supplies text and corpus position, including different-text title collisions |
+| Dense/BM25, `per_question` | `none_preserve_source_order` | retain every source context row in its original order |
+| Rerank | `none_parent_candidate_set_unchanged` | preserve the parent candidate set; do not add, remove, or deduplicate candidates |
+
+| Condition | `tie_break_policy` | Behavior |
+|---|---|---|
+| Dense/BM25 | `score_desc_then_corpus_order_asc` | descending native score, then ascending input corpus position through stable sorting |
+| Rerank | `score_desc_then_parent_rank_asc` | descending native score, then ascending parent rank through stable sorting |
+
+The policy identifier plus the corpus fingerprint records pooled title-collision handling without adding collision
+titles or text to `rankings.csv`.
+
+### `model_or_retriever_config` shape
+
+The object has exactly these three top-level keys:
+
+```json
+{
+  "implementation": "non-empty implementation/library name",
+  "identifier": "non-empty model or retriever identifier",
+  "parameters": {}
+}
+```
+
+- `implementation` and `identifier` are non-empty strings.
+- `parameters` is an object with string keys. Its values use the recursive `JSONValue` grammar:
+  `null | boolean | finite number | string | array<JSONValue> | object<string, JSONValue>`.
+- No other top-level keys are allowed. Method-specific tokenizer, BM25, encoder, or Cross-Encoder settings live
+  under `parameters`; the manifest validator validates the closed outer shape and recursively valid JSON values,
+  while method-specific provenance tests validate the required parameter names.
+
+For `method = bm25`, the complete object has exactly this shape and no extra key:
+
+```json
+{
+  "implementation": "rank_bm25",
+  "identifier": "BM25Okapi",
+  "parameters": {
+    "b": 0.75,
+    "epsilon": 0.25,
+    "k1": 1.5,
+    "lowercase": true,
+    "package_version": "0.2.2",
+    "stopword_policy": "none",
+    "tokenizer": "python_str_split"
+  }
+}
+```
+
+`b`, `epsilon`, and `k1` are finite JSON numbers containing the actual run values; `package_version` is the
+non-empty installed distribution version. `lowercase` is a boolean. `tokenizer` and `stopword_policy` are the
+exact strings shown for the current implementation, which tokenizes with `text.lower().split()` and performs no
+stopword removal. A future BM25 tokenizer or parameter-key change requires a raw-schema contract amendment.
+Corpus construction is not duplicated under `parameters`; it is covered by `setting`, `deduplication_policy`,
+`corpus_size` / `per_example_corpus_size`, and `corpus_fingerprint`.
 
 Serialization and checksum rules:
 
 ```text
-CSV:            UTF-8, comma-delimited, header row required, LF (\n) newlines, standard CSV quoting
-rankings order: ascending manifest example_id order, then ascending rank within each example
-manifest.json:  UTF-8 object, keys sorted, one trailing newline
+CSV bytes:       UTF-8 without BOM; comma delimiter; header required; LF (\n) record terminator
+CSV dialect:     quotechar='"', doublequote=true, escapechar absent, QUOTE_MINIMAL
+integer text:    base-10 ASCII, no leading '+' and no leading zero except the value 0
+float text:      Python format(value, '.17g'), lowercase exponent, with negative zero normalized to 0
+rankings order:  ascending example_id by Unicode code point, then ascending integer rank
+manifest bytes:  json.dumps(obj, ensure_ascii=False, allow_nan=False, sort_keys=True,
+                 separators=(',', ':')) encoded as UTF-8 without BOM, followed by one LF
 rankings_sha256: SHA-256 over the exact serialized bytes of rankings.csv
 ```
+
+CSV string values are passed through unchanged; the fixed dialect quotes fields containing a comma, quote, CR, or
+LF and doubles an embedded quote. These rules apply before checksum calculation. A v1 bundle contains exactly
+`manifest.json` and `rankings.csv`; the manifest is deliberately not checksummed by itself because that would be
+self-referential.
 
 Score semantics recorded via `score_type` / `score_direction`:
 
 - Dense: dot product of L2-normalized embeddings (equivalent to cosine similarity); higher is better.
 - BM25: native BM25Okapi score; higher is better.
-- Reranker: native Cross-Encoder output; the manifest states whether it is a logit or another score type.
+- Reranker: native Cross-Encoder logit recorded as `cross_encoder_logit`. Supporting another output type requires
+  an explicit contract amendment before a v1 writer may emit it.
 - Values from different `score_type` systems must not be compared directly across methods.
 
 ### Per-question completeness
 
 For a `per_question` run every example saves its complete mini-corpus, so
 `saved_depth(example) == per_example_corpus_size(example)` and the list is never truncated below the full
-corpus. Because the full mini-corpus is present, RR@10 and RR@50 are both computable; they coincide only when a
-mini-corpus contains no gold beyond rank 10. If any example was capped below its full mini-corpus, the run is
-invalid raw output: RR@50 (and any metric whose horizon exceeds that example's `saved_depth`) must be rejected
-rather than computed on a truncated list. The evaluator verifies completeness per example against
-`per_example_corpus_size`.
+corpus. The bundle-level depth must also satisfy
+`retrieval_depth == max(per_example_corpus_size.values()) == max(saved_depth(example))`. Because the full
+mini-corpus is present, RR@10 and RR@50 are both computable; they coincide only when a mini-corpus contains no gold
+beyond rank 10. If any example was capped below its full mini-corpus, the run is invalid raw output: RR@50 (and any
+metric whose horizon exceeds that example's `saved_depth`) must be rejected rather than computed on a truncated
+list. The evaluator verifies completeness per example against `per_example_corpus_size`. Extra or missing map
+keys, non-positive sizes, any saved-depth mismatch, or a bundle-level `retrieval_depth` unequal to the maximum map
+value invalidates the bundle.
+
+## Writer and parity requirements
+
+- The method-agnostic writer consumes already-produced `(Paragraph, score)` batches from the retrieval call that
+  determines the ranking. Export never invokes retrieval a second time.
+- Before bundle acceptance, validate the exact schema, expected row counts/depth, rank continuity, key uniqueness,
+  finite scores, deterministic row order, manifest agreement, and `rankings_sha256`.
+- Formal BM25 migration requires zero per-rank title mismatches. For pooled n=500, failure-review `details.jsonl`,
+  the legacy pooled `bm25_results.csv`, and the new-writer output must agree at every saved rank. Per-question raw
+  v1 reruns must agree with every title rank present in the legacy file. Any mismatch blocks promotion and is
+  investigated rather than normalized away.
 
 ## Reranker specifics
 
 - A `rerank` run consumes the Dense pooled raw run and records `parent_retrieval_run_id`,
   `parent_rankings_sha256`, and `parent_candidate_depth` as first-class manifest fields, not inside
   `model_or_retriever_config`.
+- In v1, `method = rerank` requires `setting = pooled`, a Dense pooled parent, and
+  `parent_candidate_depth == retrieval_depth` for every example. Non-rerank manifests omit all three parent fields.
 - Reranking never introduces candidates outside the parent top-50 (verified downstream in Stage 7).
 
 ## Migration safety (read-only inputs)
@@ -191,8 +313,8 @@ rather than computed on a truncated list. The evaluator verifies completeness pe
 - Formal raw v1 artifacts are produced by the new writer from genuine retrieval outputs. Any temporary
   legacy-shaped comparison view is written only to ignored migration scratch and deleted after the audit.
 
-## Alignment status
+## Freeze status
 
-This is a proposed contract. Per the refactor policy (HANDOFF §6, plan working-branch policy), the raw column
-set, run-ID grammar, directory layout, and manifest fields must be confirmed with the BM25 collaborator before
-the Stage 2 schema constants/validators freeze them. Until then, only offline schema work proceeds.
+The raw column set, run-ID grammar, directory layout, manifest fields, BM25 configuration, corpus policies, and
+writer/parity rules are frozen for Stage 2 implementation. Any incompatible physical or semantic change requires
+an explicit schema/protocol amendment rather than an implementation-time choice.
