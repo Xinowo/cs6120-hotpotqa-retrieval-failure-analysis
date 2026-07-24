@@ -34,8 +34,23 @@ from src.raw_schema import (
     validate_per_question_completeness,
     validate_rankings_checksum,
     validate_raw_bundle,
+    validate_bm25_config,
+    validate_utc_timestamp,
     expected_manifest_fields,
 )
+
+
+def _full_bm25_parameters():
+    """The complete frozen BM25 parameter set (raw spec)."""
+    return {
+        "b": 0.75,
+        "epsilon": 0.25,
+        "k1": 1.5,
+        "lowercase": True,
+        "package_version": "0.2.2",
+        "stopword_policy": "none",
+        "tokenizer": "python_str_split",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -110,7 +125,7 @@ def bm25_per_question_manifest(run_id="bm25_per_question_n2_d4_20260720_r01"):
         "model_or_retriever_config": {
             "implementation": "rank_bm25",
             "identifier": "BM25Okapi",
-            "parameters": {"k1": 1.5, "b": 0.75, "epsilon": 0.25},
+            "parameters": _full_bm25_parameters(),
         },
         "dataset_identifier": "hotpotqa_distractor_v1",
         "dataset_fingerprint": "sha256:" + "a" * 64,
@@ -536,10 +551,396 @@ def test_rankings_checksum_mismatch_rejected():
 
 
 def test_n_loaded_must_match_distinct_example_count():
-    manifest = dense_pooled_manifest()
+    # Run-ID n segment set to 3 so the n<N>/n_loaded agreement check passes and
+    # the distinct-example-count check is the one that fires.
+    manifest = dense_pooled_manifest(run_id="dense_pooled_n3_d3_20260720_r01")
     manifest["n_loaded"] = 3  # rankings only have q1, q2
     with pytest.raises(RawSchemaError):
         validate_raw_bundle(RANKING_COLUMNS, dense_pooled_rows(), manifest)
+
+
+# ---------------------------------------------------------------------------
+# P4 regression — physical ranking order (not a sorted copy)
+# ---------------------------------------------------------------------------
+
+
+def test_disordered_ranks_within_example_rejected():
+    # Physical order 2, 1, 3 for q1 — a sorted-copy check would wrongly accept.
+    rows = dense_pooled_rows()
+    q1 = [r for r in rows if r["example_id"] == "q1"]
+    q1[0]["rank"], q1[1]["rank"] = 2, 1  # physical sequence becomes 2,1,3
+    with pytest.raises(RawSchemaError):
+        validate_rankings_rows(rows, dense_pooled_manifest())
+
+
+def test_example_blocks_out_of_order_rejected():
+    # q2 block physically placed before q1 violates ascending example_id order.
+    rows = dense_pooled_rows()
+    q1 = [r for r in rows if r["example_id"] == "q1"]
+    q2 = [r for r in rows if r["example_id"] == "q2"]
+    with pytest.raises(RawSchemaError):
+        validate_rankings_rows(q2 + q1, dense_pooled_manifest())
+
+
+def test_correctly_ordered_rankings_accepted():
+    validate_rankings_rows(dense_pooled_rows(), dense_pooled_manifest())
+
+
+# ---------------------------------------------------------------------------
+# P3 regression — frozen BM25 config shape (method-specific provenance check)
+# ---------------------------------------------------------------------------
+
+
+def test_valid_bm25_config_accepted():
+    validate_bm25_config({
+        "implementation": "rank_bm25",
+        "identifier": "BM25Okapi",
+        "parameters": _full_bm25_parameters(),
+    })
+
+
+def test_bm25_config_missing_required_parameter_key_rejected():
+    params = _full_bm25_parameters()
+    del params["tokenizer"]
+    with pytest.raises(RawSchemaError):
+        validate_bm25_config({"implementation": "rank_bm25", "identifier": "BM25Okapi",
+                              "parameters": params})
+
+
+def test_bm25_config_unexpected_parameter_key_rejected():
+    params = _full_bm25_parameters()
+    params["surprise"] = 1
+    with pytest.raises(RawSchemaError):
+        validate_bm25_config({"implementation": "rank_bm25", "identifier": "BM25Okapi",
+                              "parameters": params})
+
+
+def test_bm25_config_wrong_implementation_or_identifier_rejected():
+    with pytest.raises(RawSchemaError):
+        validate_bm25_config({"implementation": "whoosh", "identifier": "BM25Okapi",
+                              "parameters": _full_bm25_parameters()})
+    with pytest.raises(RawSchemaError):
+        validate_bm25_config({"implementation": "rank_bm25", "identifier": "BM25Plus",
+                              "parameters": _full_bm25_parameters()})
+
+
+def test_bm25_config_wrong_parameter_types_rejected():
+    params = _full_bm25_parameters()
+    params["lowercase"] = "true"  # must be a real boolean
+    with pytest.raises(RawSchemaError):
+        validate_bm25_config({"implementation": "rank_bm25", "identifier": "BM25Okapi",
+                              "parameters": params})
+
+    params = _full_bm25_parameters()
+    params["package_version"] = ""  # must be non-empty
+    with pytest.raises(RawSchemaError):
+        validate_bm25_config({"implementation": "rank_bm25", "identifier": "BM25Okapi",
+                              "parameters": params})
+
+    params = _full_bm25_parameters()
+    params["tokenizer"] = "spacy"  # frozen value only
+    with pytest.raises(RawSchemaError):
+        validate_bm25_config({"implementation": "rank_bm25", "identifier": "BM25Okapi",
+                              "parameters": params})
+
+    params = _full_bm25_parameters()
+    params["k1"] = float("nan")  # must be finite
+    with pytest.raises(RawSchemaError):
+        validate_bm25_config({"implementation": "rank_bm25", "identifier": "BM25Okapi",
+                              "parameters": params})
+
+
+def test_generic_manifest_validator_stays_method_agnostic():
+    # The generic manifest validator must NOT enforce BM25 inner keys: a bm25
+    # manifest whose parameters are only {b, epsilon, k1} still passes the
+    # generic manifest check (the BM25-specific closure is validate_bm25_config).
+    manifest = bm25_per_question_manifest()
+    manifest["model_or_retriever_config"]["parameters"] = {"b": 0.75, "epsilon": 0.25, "k1": 1.5}
+    validate_manifest(manifest)  # method-agnostic: accepts
+    with pytest.raises(RawSchemaError):  # method-specific: rejects
+        validate_bm25_config(manifest["model_or_retriever_config"])
+
+
+# ---------------------------------------------------------------------------
+# P5 regression — run-ID / timestamp / reranker-parent provenance
+# ---------------------------------------------------------------------------
+
+
+def test_run_id_n_and_depth_segments_must_match_manifest():
+    manifest = dense_pooled_manifest(run_id="dense_pooled_n999_d3_20260720_r01")
+    with pytest.raises(RawSchemaError):  # n999 != n_loaded 2
+        validate_manifest(manifest)
+    manifest = dense_pooled_manifest(run_id="dense_pooled_n2_d999_20260720_r01")
+    with pytest.raises(RawSchemaError):  # d999 != retrieval_depth 3
+        validate_manifest(manifest)
+
+
+def test_run_id_invalid_calendar_date_rejected():
+    manifest = dense_pooled_manifest(run_id="dense_pooled_n2_d3_20261340_r01")
+    with pytest.raises(RawSchemaError):  # month 13, day 40
+        validate_manifest(manifest)
+
+
+def test_run_id_sequence_r00_rejected():
+    manifest = dense_pooled_manifest(run_id="dense_pooled_n2_d3_20260720_r00")
+    with pytest.raises(RawSchemaError):
+        validate_manifest(manifest)
+
+
+def test_created_at_must_be_real_utc_timestamp():
+    manifest = dense_pooled_manifest()
+    manifest["created_at"] = "2026-99-99T99:99:99Z"  # shape-valid but impossible
+    with pytest.raises(RawSchemaError):
+        validate_manifest(manifest)
+
+
+def test_validate_utc_timestamp_helper():
+    validate_utc_timestamp("2026-07-20T12:00:00Z", "created_at")
+    with pytest.raises(RawSchemaError):
+        validate_utc_timestamp("2026-13-01T00:00:00Z", "created_at")
+    with pytest.raises(RawSchemaError):
+        validate_utc_timestamp("2026-07-20 12:00:00", "created_at")  # wrong shape
+
+
+def test_rerank_parent_must_be_dense_pooled():
+    manifest = rerank_manifest()
+    manifest["parent_retrieval_run_id"] = "bm25_pooled_n2_d3_20260720_r01"  # not dense
+    with pytest.raises(RawSchemaError):
+        validate_manifest(manifest)
+
+    manifest = rerank_manifest()
+    manifest["parent_retrieval_run_id"] = "dense_per_question_n2_d3_20260720_r01"  # not pooled
+    with pytest.raises(RawSchemaError):
+        validate_manifest(manifest)
+
+    manifest = rerank_manifest()
+    manifest["parent_retrieval_run_id"] = "not-a-run-id"  # not even grammar-valid
+    with pytest.raises(RawSchemaError):
+        validate_manifest(manifest)
+
+
+def test_rerank_parent_full_semantic_validation():
+    # Dense/pooled-shaped but with an impossible date and r00 -> rejected
+    # (foreign IDs get the same full validation as the primary run ID).
+    manifest = rerank_manifest()
+    manifest["parent_retrieval_run_id"] = "dense_pooled_n2_d3_20261399_r01"  # bad date
+    with pytest.raises(RawSchemaError):
+        validate_manifest(manifest)
+
+    manifest = rerank_manifest()
+    manifest["parent_retrieval_run_id"] = "dense_pooled_n2_d3_20260720_r00"  # r00
+    with pytest.raises(RawSchemaError):
+        validate_manifest(manifest)
+
+
+# ---------------------------------------------------------------------------
+# Centralized retrieval-run-ID validator (reused for primary/parent/source/eval)
+# ---------------------------------------------------------------------------
+
+
+def test_validate_retrieval_run_id_accepts_valid():
+    from src.raw_schema import validate_retrieval_run_id
+    validate_retrieval_run_id("dense_pooled_n500_d50_20260720_r01")
+
+
+def test_validate_retrieval_run_id_full_semantics():
+    from src.raw_schema import validate_retrieval_run_id
+    with pytest.raises(RawSchemaError):
+        validate_retrieval_run_id("dense_pooled_n2_d3_20261399_r01")  # bad date
+    with pytest.raises(RawSchemaError):
+        validate_retrieval_run_id("dense_pooled_n2_d3_20260720_r00")  # r00
+    with pytest.raises(RawSchemaError):
+        validate_retrieval_run_id("not-a-run-id")  # grammar
+
+
+def test_validate_retrieval_run_id_optional_expected_segments():
+    from src.raw_schema import validate_retrieval_run_id
+    validate_retrieval_run_id("dense_pooled_n2_d3_20260720_r01",
+                              expected_method="dense", expected_setting="pooled",
+                              expected_n=2, expected_depth=3)
+    with pytest.raises(RawSchemaError):
+        validate_retrieval_run_id("dense_pooled_n2_d3_20260720_r01", expected_n=5)
+    with pytest.raises(RawSchemaError):
+        validate_retrieval_run_id("dense_pooled_n2_d3_20260720_r01", expected_method="bm25")
+
+
+# ---------------------------------------------------------------------------
+# Finding E — the canonical run-ID validator rejects non-positive n / depth
+# ---------------------------------------------------------------------------
+
+
+def test_validate_retrieval_run_id_rejects_zero_n():
+    # n0 cannot name a conforming raw bundle (n_loaded >= 1), even with no
+    # expected value supplied.
+    from src.raw_schema import validate_retrieval_run_id
+    with pytest.raises(RawSchemaError):
+        validate_retrieval_run_id("dense_pooled_n0_d50_20260720_r01")
+
+
+def test_validate_retrieval_run_id_rejects_zero_depth():
+    # d0 cannot name a conforming raw bundle (retrieval_depth >= 1).
+    from src.raw_schema import validate_retrieval_run_id
+    with pytest.raises(RawSchemaError):
+        validate_retrieval_run_id("dense_pooled_n2_d0_20260720_r01")
+
+
+def test_primary_manifest_rejects_non_positive_run_id_segments():
+    # Propagation point 1: the primary manifest reuse rejects n0/d0.
+    manifest = dense_pooled_manifest(run_id="dense_pooled_n0_d3_20260720_r01")
+    with pytest.raises(RawSchemaError):
+        validate_manifest(manifest)
+    manifest = dense_pooled_manifest(run_id="dense_pooled_n2_d0_20260720_r01")
+    with pytest.raises(RawSchemaError):
+        validate_manifest(manifest)
+
+
+def test_rerank_parent_rejects_non_positive_run_id_segments():
+    # Propagation point 2: the reranker parent reuse rejects n0/d0.
+    manifest = rerank_manifest()
+    manifest["parent_retrieval_run_id"] = "dense_pooled_n0_d3_20260720_r01"
+    with pytest.raises(RawSchemaError):
+        validate_manifest(manifest)
+    manifest = rerank_manifest()
+    manifest["parent_retrieval_run_id"] = "dense_pooled_n2_d0_20260720_r01"
+    with pytest.raises(RawSchemaError):
+        validate_manifest(manifest)
+
+
+# ---------------------------------------------------------------------------
+# Finding G — canonical ID numeric grammar is ASCII-only; the rerun sequence is
+# interpreted numerically (1..99), not string-compared to ASCII "00"
+# ---------------------------------------------------------------------------
+
+# Built with chr() so terminal/PowerShell encoding cannot silently replace the
+# character with "?" and turn these into false (accidentally-ASCII) tests.
+_AR_ZERO = chr(0x0660)   # ARABIC-INDIC DIGIT ZERO
+_AR_ONE = chr(0x0661)    # ARABIC-INDIC DIGIT ONE
+_FW_ONE = chr(0xFF11)    # FULLWIDTH DIGIT ONE
+
+
+def test_validate_retrieval_run_id_rejects_arabic_indic_zero_sequence():
+    # Two Arabic-Indic zero digits are numerically 0 but not ASCII "00", so the
+    # old `seq != "00"` string compare accepted them, bypassing the r01 lower
+    # bound. The ASCII-only regex must now reject the ID outright.
+    from src.raw_schema import validate_retrieval_run_id
+    bad = "dense_pooled_n2_d3_20260720_r" + _AR_ZERO * 2
+    with pytest.raises(RawSchemaError):
+        validate_retrieval_run_id(bad)
+
+
+def test_primary_manifest_rejects_arabic_indic_zero_sequence():
+    # Propagation: the primary raw manifest routes through the shared validator.
+    manifest = dense_pooled_manifest(
+        run_id="dense_pooled_n2_d3_20260720_r" + _AR_ZERO * 2)
+    with pytest.raises(RawSchemaError):
+        validate_manifest(manifest)
+
+
+def test_rerank_parent_rejects_arabic_indic_zero_sequence():
+    # Propagation: the reranker parent run ID uses the same validator.
+    manifest = rerank_manifest()
+    manifest["parent_retrieval_run_id"] = "dense_pooled_n2_d3_20260720_r" + _AR_ZERO * 2
+    with pytest.raises(RawSchemaError):
+        validate_manifest(manifest)
+
+
+@pytest.mark.parametrize("bad_run_id", [
+    "dense_pooled_n" + _AR_ONE + "_d3_20260720_r01",     # Unicode digit in n
+    "dense_pooled_n2_d" + _AR_ONE + "_20260720_r01",     # Unicode digit in depth
+    "dense_pooled_n2_d3_2026072" + _AR_ONE + "_r01",     # Unicode digit in date
+    "dense_pooled_n2_d3_20260720_r0" + _AR_ONE,          # Unicode digit in r seq
+    "dense_pooled_n" + _FW_ONE + "_d3_20260720_r01",     # fullwidth digit in n
+])
+def test_run_id_rejects_unicode_positive_digits(bad_run_id):
+    # Positive non-ASCII decimal digits are not an alternate canonical spelling
+    # of any numeric ID field.
+    from src.raw_schema import validate_retrieval_run_id
+    with pytest.raises(RawSchemaError):
+        validate_retrieval_run_id(bad_run_id)
+
+
+def test_run_id_ascii_sequence_bounds_r00_r01_r99():
+    # ASCII r00 rejected (numeric 0); ASCII r01 and r99 are the legal endpoints.
+    from src.raw_schema import validate_retrieval_run_id
+    with pytest.raises(RawSchemaError):
+        validate_retrieval_run_id("dense_pooled_n2_d3_20260720_r00")
+    validate_retrieval_run_id("dense_pooled_n2_d3_20260720_r01")
+    validate_retrieval_run_id("dense_pooled_n2_d3_20260720_r99")
+
+
+# ---------------------------------------------------------------------------
+# Finding H — a single trailing LF must be rejected by whole-string exact-format
+# validation (run-ID grammar, bare SHA-256 checksums, and sha256: fingerprints).
+# Each negative case differs from an accepted canonical control ONLY by one final
+# LF, so the rejection cannot be blamed on any other earlier check, and no
+# strip()/rstrip()/normalization is allowed to repair the extra byte.
+# ---------------------------------------------------------------------------
+
+_LF = "\n"
+
+
+def test_run_id_helper_rejects_terminal_lf_but_accepts_canonical():
+    # Case 1: the shared run-ID helper.
+    from src.raw_schema import validate_retrieval_run_id
+    canonical = "dense_pooled_n2_d3_20260720_r01"
+    validate_retrieval_run_id(canonical)  # control: no-LF ID accepted
+    with pytest.raises(RawSchemaError):
+        validate_retrieval_run_id(canonical + _LF)
+
+
+def test_primary_manifest_rejects_terminal_lf_run_id():
+    # Case 2: propagation through the primary raw manifest.
+    validate_manifest(dense_pooled_manifest())  # control
+    manifest = dense_pooled_manifest(run_id="dense_pooled_n2_d3_20260720_r01" + _LF)
+    with pytest.raises(RawSchemaError):
+        validate_manifest(manifest)
+
+
+def test_rerank_parent_rejects_terminal_lf_run_id():
+    # Case 3: propagation through the reranker parent run ID.
+    validate_manifest(rerank_manifest())  # control
+    manifest = rerank_manifest()
+    manifest["parent_retrieval_run_id"] = "dense_pooled_n2_d3_20260720_r01" + _LF
+    with pytest.raises(RawSchemaError):
+        validate_manifest(manifest)
+
+
+def test_rankings_sha256_rejects_terminal_lf():
+    # Case 6a: bare rankings_sha256.
+    manifest = dense_pooled_manifest()
+    validate_manifest(manifest)  # control: bare 64-hex accepted
+    manifest["rankings_sha256"] = manifest["rankings_sha256"] + _LF
+    with pytest.raises(RawSchemaError):
+        validate_manifest(manifest)
+
+
+def test_parent_rankings_sha256_rejects_terminal_lf():
+    # Case 6b: bare parent_rankings_sha256.
+    manifest = rerank_manifest()
+    validate_manifest(manifest)  # control
+    manifest["parent_rankings_sha256"] = manifest["parent_rankings_sha256"] + _LF
+    with pytest.raises(RawSchemaError):
+        validate_manifest(manifest)
+
+
+@pytest.mark.parametrize("field", ["dataset_fingerprint", "example_ids_fingerprint",
+                                   "corpus_fingerprint"])
+def test_fingerprint_fields_reject_terminal_lf(field):
+    # Case 7: every sha256:-prefixed fingerprint field.
+    manifest = dense_pooled_manifest()
+    validate_manifest(manifest)  # control: 'sha256:' + 64-hex accepted
+    manifest[field] = manifest[field] + _LF
+    with pytest.raises(RawSchemaError):
+        validate_manifest(manifest)
+
+
+def test_created_at_rejects_terminal_lf():
+    # Audit of CREATED_AT_RE for whole-string consistency: a trailing LF is
+    # rejected by the fullmatch shape gate (strptime would also reject it, but the
+    # regex now behaves consistently with the other exact-format patterns).
+    validate_utc_timestamp("2026-07-20T12:00:00Z", "created_at")  # control
+    with pytest.raises(RawSchemaError):
+        validate_utc_timestamp("2026-07-20T12:00:00Z" + _LF, "created_at")
 
 
 def test_fixtures_are_independent_copies():

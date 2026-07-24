@@ -57,8 +57,10 @@ One eval bundle corresponds to exactly one raw retrieval run, so the ID embeds t
 eval_<retrieval_run_id>_metrics_v2_e<NN>
 ```
 
-- `e<NN>` is a two-digit sequence, so one raw retrieval run can produce multiple eval versions (e.g. a metric
-  re-run) without collision. The refuse-overwrite policy matches `retrieval_run_id`.
+- `e<NN>` is a two-digit ASCII sequence (`[0-9][0-9]`; no Arabic-Indic, fullwidth, or other Unicode decimal
+  digits) starting at `e01`, so one raw retrieval run can produce multiple eval versions (e.g. a metric re-run)
+  without collision. `e00` is invalid. This uses the same canonical sequence policy as the `retrieval_run_id`
+  rerun sequence (`r<NN>`), and the refuse-overwrite collision policy likewise matches `retrieval_run_id`.
 - Cross-method or cross-setting comparison tables are not eval bundles. They live under `analysis_outputs/` and
   read from multiple single-run eval bundles; a bundle never mixes more than one raw run.
 

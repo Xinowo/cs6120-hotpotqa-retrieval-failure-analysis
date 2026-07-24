@@ -22,6 +22,7 @@ provenance only; they never recompute or redefine a metric.
 
 import hashlib
 import re
+from datetime import datetime
 from typing import Dict, List, Mapping, Sequence
 
 # ---------------------------------------------------------------------------
@@ -64,6 +65,25 @@ TIE_BREAK_POLICIES = {
 
 VALID_DEDUPLICATION_POLICIES = frozenset(DEDUPLICATION_POLICIES.values())
 VALID_TIE_BREAK_POLICIES = frozenset(TIE_BREAK_POLICIES.values())
+
+# ---------------------------------------------------------------------------
+# Frozen BM25 configuration shape (raw spec, model_or_retriever_config for
+# method == "bm25"). The generic manifest validator deliberately stays
+# method-agnostic (it only checks the closed outer object plus a recursive JSON
+# grammar for `parameters`); this closed inner shape is enforced separately by
+# `validate_bm25_config` and its method-specific provenance test, exactly as the
+# raw spec assigns ("method-specific provenance tests validate the required
+# parameter names").
+# ---------------------------------------------------------------------------
+
+BM25_IMPLEMENTATION = "rank_bm25"
+BM25_IDENTIFIER = "BM25Okapi"
+BM25_TOKENIZER = "python_str_split"
+BM25_STOPWORD_POLICY = "none"
+# Exact parameter key set; no extra key is allowed.
+BM25_PARAMETER_KEYS = frozenset(
+    {"b", "epsilon", "k1", "lowercase", "package_version", "stopword_policy", "tokenizer"}
+)
 
 # ---------------------------------------------------------------------------
 # rankings.csv column contract (fixed order)
@@ -126,22 +146,45 @@ MODEL_CONFIG_KEYS = ("implementation", "identifier", "parameters")
 # ID grammar and fingerprint/checksum text formats
 # ---------------------------------------------------------------------------
 
+# Whole-string exact-format grammars.
+#
+# Each pattern below describes CONTENT ONLY and is ALWAYS applied with
+# ``re.fullmatch(...)``, which requires the pattern to consume the entire
+# candidate string. The patterns deliberately carry no ``^``/``$`` anchors, so
+# nothing can be mistaken for whole-string safety that is not. A trailing ``$``
+# anchor combined with ``re.match(...)`` is NOT whole-string validation: in
+# Python ``$`` also matches the position immediately before a single final
+# newline, so ``pattern.match("<canonical value>\n")`` succeeds while leaving the
+# ``\n`` unconsumed. That trailing line feed is an extra character that is not
+# part of any frozen ID/checksum/fingerprint format (retrieval IDs are directory
+# and join keys; checksums/fingerprints are exact provenance strings), so it must
+# be rejected -- never repaired by ``strip()``/``rstrip()`` or any normalization.
+# ``fullmatch`` has no before-final-newline escape hatch and rejects it.
+#
 # <method>_<setting>_n<N>_d<depth>_<YYYYMMDD>_r<NN>
+# Every numeric field uses ASCII [0-9] rather than the regex shorthand \d, which
+# in Python 3 also matches non-ASCII Unicode decimal digits (Arabic-Indic,
+# fullwidth, etc.). Retrieval IDs are directory and join keys, so the frozen
+# contract's base-10 ASCII serialization has exactly one canonical spelling; a
+# visually confusable alternate numeric alphabet is not an accepted ID.
 RETRIEVAL_RUN_ID_RE = re.compile(
-    r"^(?P<method>bm25|dense|rerank)"
+    r"(?P<method>bm25|dense|rerank)"
     r"_(?P<setting>pooled|per_question)"
-    r"_n(?P<n>\d+)"
-    r"_d(?P<depth>\d+)"
-    r"_(?P<date>\d{8})"
-    r"_r(?P<seq>\d{2})$"
+    r"_n(?P<n>[0-9]+)"
+    r"_d(?P<depth>[0-9]+)"
+    r"_(?P<date>[0-9]{8})"
+    r"_r(?P<seq>[0-9]{2})"
 )
 
-# Bare rankings/parent checksum: 64 lowercase hex chars, no prefix.
-SHA256_HEX_RE = re.compile(r"^[0-9a-f]{64}$")
-# Fingerprint fields: "sha256:" prefix followed by 64 lowercase hex chars.
-SHA256_FINGERPRINT_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+# Bare rankings/parent checksum: exactly 64 lowercase hex chars, no prefix.
+SHA256_HEX_RE = re.compile(r"[0-9a-f]{64}")
+# Fingerprint fields: "sha256:" prefix followed by exactly 64 lowercase hex chars.
+SHA256_FINGERPRINT_RE = re.compile(r"sha256:[0-9a-f]{64}")
 
-CREATED_AT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+# created_at is additionally range-checked by strptime below; this regex is the
+# shape gate and, like the others, is applied with fullmatch() so a trailing LF
+# cannot slip in ahead of the parse.
+CREATED_AT_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 
 
 class RawSchemaError(ValueError):
@@ -180,6 +223,88 @@ def compute_sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def validate_utc_timestamp(value, where: str) -> None:
+    """Reject any ``created_at`` that is not a real UTC calendar timestamp.
+
+    The frozen format is ``YYYY-MM-DDTHH:MM:SSZ`` with no fractional seconds.
+    A shape-only regex would accept impossible values such as
+    ``2026-99-99T99:99:99Z``; parsing with ``strptime`` rejects them because it
+    range-checks month/day/hour/minute/second (and day-of-month per month).
+    """
+    _require(isinstance(value, str) and CREATED_AT_RE.fullmatch(value) is not None,
+             f"{where} must be UTC 'YYYY-MM-DDTHH:MM:SSZ' with no fractional seconds, "
+             f"got {value!r}")
+    try:
+        datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        raise RawSchemaError(
+            f"{where} {value!r} is not a real UTC calendar timestamp")
+
+
+def validate_retrieval_run_id(run_id, expected_method=None, expected_setting=None,
+                              expected_n=None, expected_depth=None,
+                              where="retrieval_run_id"):
+    """Fully validate a ``retrieval_run_id`` and return its regex match.
+
+    This is the single canonical run-ID validator, reused for the primary raw
+    manifest, the reranker parent, the eval source run, and the run embedded in
+    an ``eval_id``. It enforces the full grammar semantics, not just the regex
+    shape: a real UTC calendar date (``strptime``) and an ASCII rerun sequence in
+    ``01``..``99`` (``r00`` and any non-ASCII digit spelling invalid). Optional
+    ``expected_*`` bind the method, setting,
+    ``n<N>`` (== ``n_loaded``), and ``d<depth>`` (== ``retrieval_depth``) segments
+    when the caller has those values (a foreign ID whose manifest is not
+    available simply omits ``expected_n`` / ``expected_depth``).
+    """
+    # fullmatch (not match) so a trailing LF after the r<NN> segment is rejected,
+    # not silently ignored by a `$`-before-newline match.
+    match = RETRIEVAL_RUN_ID_RE.fullmatch(run_id) if isinstance(run_id, str) else None
+    _require(match is not None,
+             f"{where} {run_id!r} must match the frozen grammar "
+             f"<method>_<setting>_n<N>_d<depth>_<YYYYMMDD>_r<NN>")
+    try:
+        datetime.strptime(match.group("date"), "%Y%m%d")
+    except ValueError:
+        raise RawSchemaError(
+            f"{where} date segment {match.group('date')!r} is not a real calendar date")
+    # The sequence is now two ASCII digits (regex-guaranteed). Interpret it
+    # numerically and require 1 <= seq <= 99 rather than only string-comparing to
+    # ASCII "00": that string compare let a Unicode-zero pair (numerically 0) slip
+    # past the r01 lower bound. The ASCII-only regex already rejects non-ASCII
+    # digits, and int() on two ASCII digits is always in 0..99.
+    seq = int(match.group("seq"))
+    _require(1 <= seq <= 99,
+             f"{where} sequence starts at r01; r{match.group('seq')} is invalid "
+             f"(ASCII 01-99 only)")
+    # Positivity is UNCONDITIONAL (Finding E): the raw spec fixes n<N> == n_loaded
+    # (>= 1) and d<depth> == retrieval_depth (>= 1), so a zero-question or
+    # zero-depth ID can never name a conforming raw bundle -- not even as a
+    # reranker parent or eval source whose own manifest is unavailable here. This
+    # is a range check on the ID itself; it needs no manifest and no expected_*
+    # value, stays method-agnostic, and computes no metric.
+    _require(int(match.group("n")) >= 1,
+             f"{where} n segment {match.group('n')} must be >= 1 (n_loaded >= 1)")
+    _require(int(match.group("depth")) >= 1,
+             f"{where} d segment {match.group('depth')} must be >= 1 "
+             f"(retrieval_depth >= 1)")
+    if expected_method is not None:
+        _require(match.group("method") == expected_method,
+                 f"{where} method segment {match.group('method')!r} must be "
+                 f"{expected_method!r}")
+    if expected_setting is not None:
+        _require(match.group("setting") == expected_setting,
+                 f"{where} setting segment {match.group('setting')!r} must be "
+                 f"{expected_setting!r}")
+    if expected_n is not None:
+        _require(int(match.group("n")) == expected_n,
+                 f"{where} n segment {match.group('n')} must equal n_loaded {expected_n}")
+    if expected_depth is not None:
+        _require(int(match.group("depth")) == expected_depth,
+                 f"{where} d segment {match.group('depth')} must equal retrieval_depth "
+                 f"{expected_depth}")
+    return match
+
+
 # ---------------------------------------------------------------------------
 # rankings.csv validators
 # ---------------------------------------------------------------------------
@@ -198,15 +323,20 @@ def validate_rankings_rows(rows: Sequence[Mapping], manifest: Mapping) -> None:
     """Validate rankings row content against the manifest.
 
     Checks value vocabularies, run-ID/method/setting agreement with the
-    manifest, per-example 1-based contiguous ranks, key uniqueness, and finite
-    numeric scores. It never inspects gold or recomputes a metric.
+    manifest, finite numeric scores, and the frozen PHYSICAL row order: rows are
+    ordered by ascending ``example_id`` (Unicode code point) then ascending
+    integer ``rank``, and within each example ``rank`` appears physically as
+    ``1, 2, ..., n`` with no gaps or duplicates. The order is verified from the
+    row sequence itself (not a sorted copy), because the frozen serialization
+    order is what the ``rankings_sha256`` checksum is computed over. It never
+    inspects gold or recomputes a metric.
     """
     run_id = manifest.get("retrieval_run_id")
     method = manifest.get("method")
     setting = manifest.get("setting")
 
-    seen_keys = set()
-    ranks_by_example: Dict[str, List[int]] = {}
+    prev_key = None
+    next_rank_by_example: Dict[str, int] = {}
 
     for i, row in enumerate(rows):
         where = f"rankings row {i}"
@@ -233,20 +363,22 @@ def validate_rankings_rows(rows: Sequence[Mapping], manifest: Mapping) -> None:
         _require(_is_finite_number(score),
                  f"{where}: score must be a finite number, got {score!r}")
 
-        key = (run_id, example_id, rank)
-        _require(key not in seen_keys,
-                 f"{where}: duplicate (retrieval_run_id, example_id, rank) {key!r}")
-        seen_keys.add(key)
+        # Physical global order: strictly ascending (example_id, rank). This also
+        # rejects duplicate (example_id, rank) rows and out-of-order example
+        # blocks (e.g. a q2 block placed before q1).
+        key = (example_id, rank)
+        if prev_key is not None:
+            _require(prev_key < key,
+                     f"{where}: rows must be physically ordered by ascending "
+                     f"example_id then rank; {key!r} does not come after {prev_key!r}")
+        prev_key = key
 
-        ranks_by_example.setdefault(example_id, []).append(rank)
-
-    for example_id, ranks in ranks_by_example.items():
-        expected = list(range(1, len(ranks) + 1))
-        if sorted(ranks) != expected:
-            raise RawSchemaError(
-                f"example {example_id!r}: ranks must be 1-based and contiguous "
-                f"with no gaps or duplicates, got {sorted(ranks)}"
-            )
+        # Physical per-example contiguity: ranks appear as 1, 2, ..., n in order.
+        expected_rank = next_rank_by_example.get(example_id, 1)
+        _require(rank == expected_rank,
+                 f"{where}: example {example_id!r} rank must appear physically as "
+                 f"1..n; expected {expected_rank}, got {rank}")
+        next_rank_by_example[example_id] = rank + 1
 
 
 def saved_depth_by_example(rows: Sequence[Mapping]) -> Dict[str, int]:
@@ -407,18 +539,7 @@ def validate_manifest(manifest: Mapping) -> None:
              f"method={method!r} setting={setting!r}; missing={sorted(expected - actual)}, "
              f"unexpected={sorted(actual - expected)}")
 
-    run_id = manifest["retrieval_run_id"]
-    match = RETRIEVAL_RUN_ID_RE.match(run_id) if isinstance(run_id, str) else None
-    _require(match is not None,
-             f"retrieval_run_id {run_id!r} must match the frozen grammar "
-             f"<method>_<setting>_n<N>_d<depth>_<YYYYMMDD>_r<NN>")
-    _require(match.group("method") == method,
-             "retrieval_run_id method segment must match manifest method")
-    _require(match.group("setting") == setting,
-             "retrieval_run_id setting segment must match manifest setting")
-
-    _require(CREATED_AT_RE.match(manifest["created_at"]) is not None,
-             "created_at must be UTC 'YYYY-MM-DDTHH:MM:SSZ' with no fractional seconds")
+    validate_utc_timestamp(manifest["created_at"], "created_at")
 
     _require(isinstance(manifest["split"], str) and manifest["split"] != "",
              "split must be a non-empty string")
@@ -431,6 +552,12 @@ def validate_manifest(manifest: Mapping) -> None:
     retrieval_depth = manifest["retrieval_depth"]
     _require(_is_int(retrieval_depth) and retrieval_depth >= 1,
              "retrieval_depth must be an integer >= 1")
+
+    # Full run-ID validation (grammar + real date + r>=01) with the n<N>/d<depth>
+    # and method/setting segments bound to the manifest values.
+    validate_retrieval_run_id(manifest["retrieval_run_id"], expected_method=method,
+                              expected_setting=setting, expected_n=n_loaded,
+                              expected_depth=retrieval_depth, where="retrieval_run_id")
 
     _require(manifest["score_type"] == SCORE_TYPE_BY_METHOD[method],
              f"score_type must be {SCORE_TYPE_BY_METHOD[method]!r} for method {method!r}")
@@ -446,11 +573,11 @@ def validate_manifest(manifest: Mapping) -> None:
 
     for field in ("dataset_fingerprint", "example_ids_fingerprint", "corpus_fingerprint"):
         value = manifest[field]
-        _require(isinstance(value, str) and SHA256_FINGERPRINT_RE.match(value) is not None,
+        _require(isinstance(value, str) and SHA256_FINGERPRINT_RE.fullmatch(value) is not None,
                  f"{field} must be 'sha256:' + 64 lowercase hex chars, got {value!r}")
 
     _require(isinstance(manifest["rankings_sha256"], str)
-             and SHA256_HEX_RE.match(manifest["rankings_sha256"]) is not None,
+             and SHA256_HEX_RE.fullmatch(manifest["rankings_sha256"]) is not None,
              "rankings_sha256 must be 64 lowercase hex chars")
 
     dedup = manifest["deduplication_policy"]
@@ -479,17 +606,60 @@ def validate_manifest(manifest: Mapping) -> None:
                      f"per_example_corpus_size[{example_id!r}] must be an integer >= 1")
 
     if method == "rerank":
-        _require(isinstance(manifest["parent_retrieval_run_id"], str)
-                 and manifest["parent_retrieval_run_id"] != "",
-                 "parent_retrieval_run_id must be a non-empty string")
+        # A v1 rerank run requires a Dense pooled parent. The parent's own
+        # manifest is not available here, so n/depth are not bound, but the ID
+        # must still be fully valid (grammar + real date + r>=01), not just
+        # regex-shaped.
+        validate_retrieval_run_id(manifest["parent_retrieval_run_id"],
+                                  expected_method="dense", expected_setting="pooled",
+                                  where="parent_retrieval_run_id")
         _require(isinstance(manifest["parent_rankings_sha256"], str)
-                 and SHA256_HEX_RE.match(manifest["parent_rankings_sha256"]) is not None,
+                 and SHA256_HEX_RE.fullmatch(manifest["parent_rankings_sha256"]) is not None,
                  "parent_rankings_sha256 must be 64 lowercase hex chars")
         depth = manifest["parent_candidate_depth"]
         _require(_is_int(depth) and depth >= 1,
                  "parent_candidate_depth must be an integer >= 1")
         _require(depth == retrieval_depth,
                  "a v1 rerank run requires parent_candidate_depth == retrieval_depth")
+
+
+def validate_bm25_config(config: Mapping) -> None:
+    """Method-specific provenance validator for a BM25 ``model_or_retriever_config``.
+
+    The frozen raw spec deliberately keeps the generic manifest validator
+    method-agnostic (closed outer shape + recursive JSON grammar) and assigns the
+    BM25 inner-key contract to a method-specific provenance check. This function
+    is that check; it is NOT called by :func:`validate_manifest`. It enforces the
+    exact implementation/identifier, the exact seven parameter keys, and their
+    types and frozen string values. It defines no metric.
+    """
+    _validate_model_config(config)  # closed outer shape + recursive JSON values
+    _require(config["implementation"] == BM25_IMPLEMENTATION,
+             f"BM25 implementation must be {BM25_IMPLEMENTATION!r}, got "
+             f"{config['implementation']!r}")
+    _require(config["identifier"] == BM25_IDENTIFIER,
+             f"BM25 identifier must be {BM25_IDENTIFIER!r}, got {config['identifier']!r}")
+
+    params = config["parameters"]
+    _require(set(params.keys()) == set(BM25_PARAMETER_KEYS),
+             f"BM25 parameters must have exactly keys {sorted(BM25_PARAMETER_KEYS)}; "
+             f"missing={sorted(set(BM25_PARAMETER_KEYS) - set(params))}, "
+             f"unexpected={sorted(set(params) - set(BM25_PARAMETER_KEYS))}")
+
+    for numeric_key in ("b", "epsilon", "k1"):
+        _require(_is_finite_number(params[numeric_key]),
+                 f"BM25 parameter {numeric_key!r} must be a finite number, got "
+                 f"{params[numeric_key]!r}")
+    _require(isinstance(params["lowercase"], bool),
+             "BM25 parameter 'lowercase' must be a boolean")
+    _require(isinstance(params["package_version"], str) and params["package_version"] != "",
+             "BM25 parameter 'package_version' must be a non-empty string")
+    _require(params["tokenizer"] == BM25_TOKENIZER,
+             f"BM25 parameter 'tokenizer' must be {BM25_TOKENIZER!r}, got "
+             f"{params['tokenizer']!r}")
+    _require(params["stopword_policy"] == BM25_STOPWORD_POLICY,
+             f"BM25 parameter 'stopword_policy' must be {BM25_STOPWORD_POLICY!r}, got "
+             f"{params['stopword_policy']!r}")
 
 
 def validate_rankings_checksum(rankings_bytes: bytes, manifest: Mapping) -> None:
