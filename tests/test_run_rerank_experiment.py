@@ -20,6 +20,7 @@ in the property under test (a paired legal/adversarial matrix), so a regression
 that loosens a guard is caught.
 """
 
+import io
 import os
 import sys
 
@@ -37,6 +38,7 @@ from src.top50_export import TOP50_COLUMNS
 import run_rerank_experiment as runner
 
 POOLED_DEPTH = STORE_DEPTH_BY_SETTING["pooled"]  # 50
+PER_QUESTION_DEPTH = STORE_DEPTH_BY_SETTING["per_question"]  # 10
 
 
 def fake_score(pairs):
@@ -454,3 +456,487 @@ def test_main_writes_pooled_rerank_csv(monkeypatch, tmp_path):
     assert pd.api.types.is_integer_dtype(result["any_evidence_recall@10"])
     # Both golds get promoted to rank 1 by the reranker.
     assert result["reciprocal_rank_at_10"].tolist() == [1.0, 1.0]
+
+
+# =========================================================================== #
+# PER-QUESTION reranker path
+# =========================================================================== #
+#
+# The per_question path reranks each question's OWN provided paragraphs
+# (example.paragraphs) -- no top-50 export, no pooled corpus -- stores up to 10
+# titles, fills @2/@5, leaves @10 empty, and byte-appends onto the accepted
+# pooled rows. The same offline fake word-overlap scorer is reused.
+
+
+def make_perq_example(example_id, n_candidates, question="gold", gold_text="gold"):
+    """A HotpotExample whose OWN paragraphs are the per_question candidate set:
+    a single relevant "Gold" paragraph (text matches the query word) plus
+    (n_candidates - 1) zero-overlap distractors. The reranker must promote Gold
+    to rank 1. Titles carry the example_id so they stay unique across examples."""
+    paragraphs = [Paragraph(title=f"Gold_{example_id}", text=gold_text)]
+    paragraphs += [
+        Paragraph(title=f"D{i}_{example_id}", text=f"d{i}")
+        for i in range(n_candidates - 1)
+    ]
+    return HotpotExample(
+        example_id=example_id,
+        question=question,
+        answer="",
+        question_type="bridge",
+        level="hard",
+        paragraphs=paragraphs,
+        gold_titles={f"Gold_{example_id}"},
+    )
+
+
+def write_pooled_csv(path, example_ids, depth=POOLED_DEPTH):
+    """Write a schema-valid accepted-style pooled CSV (one rerank/pooled row per
+    id, exactly `depth` titles, all cutoffs filled) the same way the real runner
+    does (df.to_csv), so it carries this platform's line terminator."""
+    rows = []
+    for eid in example_ids:
+        row = {column: None for column in RESULT_COLUMNS}
+        row.update(
+            {
+                "method": "rerank",
+                "setting": "pooled",
+                "example_id": eid,
+                "question_type": "bridge",
+                "level": "hard",
+                "question": f"pooled question {eid}",
+                "gold_titles": "GA | GB",
+                "retrieved_titles": " | ".join(f"PT{i}_{eid}" for i in range(depth)),
+            }
+        )
+        for k in (2, 5, 10):
+            row[f"any_evidence_recall@{k}"] = 1
+            row[f"full_evidence_recall@{k}"] = 1
+            row[f"partial_evidence_recall@{k}"] = 1.0
+        row["reciprocal_rank_at_10"] = 1.0
+        row["reciprocal_rank_at_50"] = 1.0
+        rows.append(row)
+    pd.DataFrame(rows, columns=RESULT_COLUMNS).to_csv(path, index=False)
+
+
+def build_pq_frame(examples, reranker=None):
+    """Run the per_question reranker and shape a DataFrame (what the runner writes)."""
+    rows, _ = runner.run_rerank_per_question(examples, reranker or make_reranker())
+    return pd.DataFrame(rows, columns=RESULT_COLUMNS)
+
+
+# --------------------------------------------------------------------------- #
+# setting shaping: @10 empty, RR horizons equal, real reordering
+# --------------------------------------------------------------------------- #
+
+def test_per_question_reorders_and_shapes_rows():
+    ex = make_perq_example("q1", n_candidates=4)
+    rows, metrics = runner.run_rerank_per_question([ex], make_reranker())
+    row = rows[0]
+
+    assert row["method"] == "rerank"
+    assert row["setting"] == "per_question"
+    # Gold text matches the query word, so it is promoted to rank 1.
+    assert row["retrieved_titles"].split(" | ")[0] == "Gold_q1"
+    assert row["any_evidence_recall@2"] == 1
+    assert type(row["any_evidence_recall@2"]) is int
+    assert row["reciprocal_rank_at_10"] == 1.0
+    assert len(metrics) == 1
+
+
+def test_per_question_leaves_at10_recall_empty():
+    ex = make_perq_example("q1", n_candidates=6)
+    rows, _ = runner.run_rerank_per_question([ex], make_reranker())
+    row = rows[0]
+    # @2/@5 are computed; the three @10 recall columns are left as None (NaN).
+    for k in (2, 5):
+        assert row[f"any_evidence_recall@{k}"] is not None
+    for column in runner.AT10_RECALL_COLUMNS:
+        assert row[column] is None
+
+
+def test_per_question_rr_horizons_equal_per_row():
+    # A miss at every rank still leaves RR@10 == RR@50 (both 0.0); a hit leaves
+    # both at the same reciprocal rank -- the final list has at most ~10 titles.
+    ex_hit = make_perq_example("q_hit", n_candidates=10)
+    ex_miss = make_perq_example("q_miss", n_candidates=10)
+    ex_miss.gold_titles = {"NotPresent"}
+    rows, _ = runner.run_rerank_per_question([ex_hit, ex_miss], make_reranker())
+    for row in rows:
+        assert row["reciprocal_rank_at_10"] == row["reciprocal_rank_at_50"]
+    assert rows[1]["reciprocal_rank_at_10"] == 0.0
+
+
+def test_per_question_columns_match_schema_order():
+    ex = make_perq_example("q1", n_candidates=10)
+    df = build_pq_frame([ex])
+    assert list(df.columns) == RESULT_COLUMNS
+    assert "mrr" not in df.columns
+
+
+# --------------------------------------------------------------------------- #
+# output-depth matrix (8 / 10 / 12 candidates; short injected output)
+# --------------------------------------------------------------------------- #
+
+def test_per_question_8_candidates_store_exactly_8():
+    ex = make_perq_example("q8", n_candidates=8)
+    rows, _ = runner.run_rerank_per_question([ex], make_reranker())
+    assert len(rows[0]["retrieved_titles"].split(" | ")) == 8
+
+
+def test_per_question_10_candidates_store_exactly_10():
+    ex = make_perq_example("q10", n_candidates=10)
+    rows, _ = runner.run_rerank_per_question([ex], make_reranker())
+    assert len(rows[0]["retrieved_titles"].split(" | ")) == 10
+
+
+def test_per_question_12_candidates_scorer_sees_12_store_10():
+    ex = make_perq_example("q12", n_candidates=12)
+    seen = {"count": None}
+
+    def spy_score(pairs):
+        seen["count"] = len(pairs)
+        return fake_score(pairs)
+
+    rows, _ = runner.run_rerank_per_question(
+        [ex], CrossEncoderReranker(scorer=spy_score)
+    )
+    # All 12 candidates are scored (nothing truncated before scoring)...
+    assert seen["count"] == 12
+    # ...but only the top 10 are stored (the per_question cap).
+    assert len(rows[0]["retrieved_titles"].split(" | ")) == 10
+
+
+def test_per_question_short_reranker_output_fails_fast():
+    """An injected reranker that returns fewer titles than min(candidates, 10)
+    must be rejected before a short row is built."""
+    ex = make_perq_example("q8", n_candidates=8)
+
+    class DropsOneReranker:
+        def rerank_titles(self, query, candidates, top_k):
+            return [c.title for c in candidates[:-1]]  # 7 for 8 candidates
+
+    with pytest.raises(ValueError):
+        runner.run_rerank_per_question([ex], DropsOneReranker())
+
+
+def test_per_question_empty_candidates_expected_depth_zero():
+    # An allowed empty candidate set expects depth 0 (no spurious [""] title).
+    ex = make_perq_example("q0", n_candidates=1)
+    ex.paragraphs = []
+    rows, _ = runner.run_rerank_per_question([ex], make_reranker())
+    assert runner.title_depth(rows[0]["retrieved_titles"]) == 0
+
+
+def test_per_question_scorer_receives_all_candidate_texts():
+    ex = make_perq_example("q10", n_candidates=10)
+    seen = {"texts": None}
+
+    def spy_score(pairs):
+        seen["texts"] = [text for _q, text in pairs]
+        return fake_score(pairs)
+
+    runner.run_rerank_per_question([ex], CrossEncoderReranker(scorer=spy_score))
+    expected_texts = [p.text for p in ex.paragraphs]
+    assert seen["texts"] == expected_texts
+
+
+# --------------------------------------------------------------------------- #
+# main() dispatch: per_question needs no top50_in; pooled still requires it
+# --------------------------------------------------------------------------- #
+
+def test_per_question_main_runs_without_top50_in(monkeypatch, tmp_path):
+    examples = [make_perq_example("q1", 10), make_perq_example("q2", 10)]
+    out = tmp_path / "rerank_results.csv"
+    write_pooled_csv(str(out), ["q1", "q2"])
+    baseline = out.read_bytes()
+
+    monkeypatch.setattr(runner, "load_examples", lambda **_kwargs: examples)
+
+    def _no_corpus(_examples):
+        raise AssertionError("per_question must not build the pooled corpus")
+
+    monkeypatch.setattr(runner, "build_pooled_corpus", _no_corpus)
+
+    # top50_in points at a non-existent file: per_question must not read it.
+    runner.main(
+        n=2, split="validation",
+        top50_in=str(tmp_path / "does_not_exist.csv"),
+        out_path=str(out), setting="per_question", reranker=make_reranker(),
+    )
+
+    merged = pd.read_csv(out, dtype={"example_id": str})
+    assert len(merged) == 4
+    assert merged["setting"].tolist() == ["pooled", "pooled", "per_question", "per_question"]
+    # The pooled bytes survive verbatim as a prefix.
+    assert out.read_bytes().startswith(baseline)
+    perq = merged[merged["setting"] == "per_question"]
+    assert set(perq["example_id"]) == {"q1", "q2"}
+    for column in runner.AT10_RECALL_COLUMNS:
+        assert perq[column].isna().all()
+    assert (perq["reciprocal_rank_at_10"] == perq["reciprocal_rank_at_50"]).all()
+
+
+def test_pooled_main_requires_top50_in(monkeypatch, tmp_path):
+    examples = [make_example("q", "gold", {"Gold"})]
+    monkeypatch.setattr(runner, "load_examples", lambda **_kwargs: examples)
+    monkeypatch.setattr(runner, "build_pooled_corpus", lambda _ex: (list(DEEP_CORPUS), []))
+    with pytest.raises(FileNotFoundError):
+        runner.main(
+            n=1, split="validation",
+            top50_in=str(tmp_path / "missing.csv"),
+            out_path=str(tmp_path / "out.csv"), setting="pooled",
+            reranker=make_reranker(),
+        )
+
+
+# --------------------------------------------------------------------------- #
+# pre-run validation of the existing accepted pooled CSV
+# --------------------------------------------------------------------------- #
+
+def test_validate_existing_pooled_csv_accepts_good(tmp_path):
+    examples = [make_perq_example("q1", 10), make_perq_example("q2", 10)]
+    out = tmp_path / "r.csv"
+    write_pooled_csv(str(out), ["q1", "q2"])
+    df, ids = runner.validate_existing_pooled_csv(str(out), examples)
+    assert ids == {"q1", "q2"}
+    assert len(df) == 2
+
+
+def test_validate_existing_pooled_csv_rejects_missing_file(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        runner.validate_existing_pooled_csv(
+            str(tmp_path / "nope.csv"), [make_perq_example("q1", 10)]
+        )
+
+
+def test_validate_existing_pooled_csv_rejects_wrong_row_count(tmp_path):
+    out = tmp_path / "r.csv"
+    write_pooled_csv(str(out), ["q1", "q2"])
+    with pytest.raises(ValueError):
+        runner.validate_existing_pooled_csv(str(out), [make_perq_example("q1", 10)])
+
+
+def test_validate_existing_pooled_csv_rejects_missing_id(tmp_path):
+    out = tmp_path / "r.csv"
+    write_pooled_csv(str(out), ["q1", "q2"])
+    examples = [make_perq_example("q1", 10), make_perq_example("q3", 10)]
+    with pytest.raises(ValueError):
+        runner.validate_existing_pooled_csv(str(out), examples)
+
+
+def test_validate_existing_pooled_csv_rejects_extra_id(tmp_path):
+    out = tmp_path / "r.csv"
+    write_pooled_csv(str(out), ["q1", "q2", "q3"])
+    examples = [make_perq_example("q1", 10), make_perq_example("q2", 10)]
+    with pytest.raises(ValueError):
+        runner.validate_existing_pooled_csv(str(out), examples)
+
+
+def test_validate_existing_pooled_csv_rejects_duplicate_id(tmp_path):
+    out = tmp_path / "r.csv"
+    write_pooled_csv(str(out), ["q1", "q1"])
+    examples = [make_perq_example("q1", 10), make_perq_example("q2", 10)]
+    with pytest.raises(ValueError):
+        runner.validate_existing_pooled_csv(str(out), examples)
+
+
+def test_validate_existing_pooled_csv_rejects_existing_per_question_rows(tmp_path):
+    out = tmp_path / "r.csv"
+    write_pooled_csv(str(out), ["q1", "q2"])
+    # Flip one row's setting to per_question: the target already has appended rows.
+    df = pd.read_csv(out, dtype={"example_id": str})
+    df.loc[0, "setting"] = "per_question"
+    df.to_csv(out, index=False)
+    examples = [make_perq_example("q1", 10), make_perq_example("q2", 10)]
+    with pytest.raises(ValueError):
+        runner.validate_existing_pooled_csv(str(out), examples)
+
+
+def test_validate_existing_pooled_csv_rejects_wrong_schema(tmp_path):
+    out = tmp_path / "r.csv"
+    write_pooled_csv(str(out), ["q1"])
+    df = pd.read_csv(out)
+    df = df.drop(columns=["reciprocal_rank_at_50"])
+    df.to_csv(out, index=False)
+    with pytest.raises(ValueError):
+        runner.validate_existing_pooled_csv(str(out), [make_perq_example("q1", 10)])
+
+
+def test_validate_existing_pooled_csv_rejects_wrong_method(tmp_path):
+    out = tmp_path / "r.csv"
+    write_pooled_csv(str(out), ["q1"])
+    df = pd.read_csv(out, dtype={"example_id": str})
+    df.loc[0, "method"] = "dense"
+    df.to_csv(out, index=False)
+    with pytest.raises(ValueError):
+        runner.validate_existing_pooled_csv(str(out), [make_perq_example("q1", 10)])
+
+
+def test_validate_existing_pooled_csv_rejects_short_pooled_depth(tmp_path):
+    out = tmp_path / "r.csv"
+    write_pooled_csv(str(out), ["q1"], depth=POOLED_DEPTH - 1)  # 49 titles
+    with pytest.raises(ValueError):
+        runner.validate_existing_pooled_csv(str(out), [make_perq_example("q1", 10)])
+
+
+# --------------------------------------------------------------------------- #
+# post-generation validation of the per_question frame
+# --------------------------------------------------------------------------- #
+
+def test_validate_per_question_frame_accepts_good():
+    examples = [make_perq_example("q1", 10), make_perq_example("q2", 8)]
+    pq_df = build_pq_frame(examples)
+    runner.validate_per_question_frame(pq_df, examples, {"q1", "q2"})
+
+
+def test_validate_per_question_frame_rejects_id_mismatch():
+    examples = [make_perq_example("q1", 10)]
+    pq_df = build_pq_frame(examples)
+    with pytest.raises(ValueError):
+        runner.validate_per_question_frame(pq_df, examples, {"q1", "q2"})
+
+
+def test_validate_per_question_frame_rejects_wrong_depth():
+    examples = [make_perq_example("q1", 10)]
+    pq_df = build_pq_frame(examples)
+    # Truncate the stored titles so the row depth no longer matches the count.
+    pq_df.loc[0, "retrieved_titles"] = "only_one"
+    with pytest.raises(ValueError):
+        runner.validate_per_question_frame(pq_df, examples, {"q1"})
+
+
+def test_validate_per_question_frame_rejects_filled_at10():
+    examples = [make_perq_example("q1", 10)]
+    pq_df = build_pq_frame(examples)
+    pq_df.loc[0, "any_evidence_recall@10"] = 1
+    with pytest.raises(ValueError):
+        runner.validate_per_question_frame(pq_df, examples, {"q1"})
+
+
+# --------------------------------------------------------------------------- #
+# byte-preserving atomic merge-append
+# --------------------------------------------------------------------------- #
+
+def test_merge_preserves_prefix_single_header_and_appends_after_pooled(tmp_path):
+    examples = [make_perq_example("q1", 10), make_perq_example("q2", 10)]
+    out = tmp_path / "r.csv"
+    write_pooled_csv(str(out), ["q1", "q2"])
+    baseline = out.read_bytes()
+
+    runner.validate_existing_pooled_csv(str(out), examples)
+    pq_df = build_pq_frame(examples)
+    runner.validate_per_question_frame(pq_df, examples, {"q1", "q2"})
+    runner.atomic_merge_append(str(out), pq_df, examples)
+
+    merged_bytes = out.read_bytes()
+    # Pooled bytes survive verbatim as an exact prefix.
+    assert merged_bytes.startswith(baseline)
+    # Exactly one header line in the merged file.
+    assert merged_bytes.decode("utf-8").count("method,setting,example_id") == 1
+    # per_question rows come after the pooled rows.
+    merged = pd.read_csv(out, dtype={"example_id": str})
+    assert merged["setting"].tolist() == ["pooled", "pooled", "per_question", "per_question"]
+
+
+def test_merge_leaves_pooled_row_values_and_order_unchanged(tmp_path):
+    examples = [make_perq_example("q1", 10), make_perq_example("q2", 10)]
+    out = tmp_path / "r.csv"
+    write_pooled_csv(str(out), ["q1", "q2"])
+    pooled_before = pd.read_csv(io.BytesIO(out.read_bytes()), dtype={"example_id": str})
+
+    pq_df = build_pq_frame(examples)
+    runner.atomic_merge_append(str(out), pq_df, examples)
+
+    merged = pd.read_csv(out, dtype={"example_id": str})
+    pooled_after = merged[merged["setting"] == "pooled"].reset_index(drop=True)
+    # Same pooled row values, same order (dtype of @10 differs only because the
+    # merged column now also holds per_question NaNs).
+    pd.testing.assert_frame_equal(
+        pooled_before, pooled_after, check_dtype=False
+    )
+
+
+def test_merge_does_not_end_with_the_temp_file(tmp_path):
+    examples = [make_perq_example("q1", 10)]
+    out = tmp_path / "r.csv"
+    write_pooled_csv(str(out), ["q1"])
+    pq_df = build_pq_frame(examples)
+    runner.atomic_merge_append(str(out), pq_df, examples)
+    assert not os.path.exists(str(out) + ".merge.tmp")
+
+
+def test_merge_bundle_validation_failure_leaves_original_untouched(tmp_path, monkeypatch):
+    examples = [make_perq_example("q1", 10)]
+    out = tmp_path / "r.csv"
+    write_pooled_csv(str(out), ["q1"])
+    baseline = out.read_bytes()
+    pq_df = build_pq_frame(examples)
+
+    def _boom(*_a, **_k):
+        raise ValueError("forced bundle-validation failure")
+
+    monkeypatch.setattr(runner, "validate_merged_bundle", _boom)
+    with pytest.raises(ValueError):
+        runner.atomic_merge_append(str(out), pq_df, examples)
+
+    # The original formal file is byte-for-byte unchanged, and no temp remains.
+    assert out.read_bytes() == baseline
+    assert not os.path.exists(str(out) + ".merge.tmp")
+
+
+def test_merge_refuses_append_when_pooled_file_lacks_trailing_newline(tmp_path):
+    """A pooled file whose final row is not newline-terminated would splice the
+    first per_question row onto it; the append is refused instead."""
+    examples = [make_perq_example("q1", 10)]
+    out = tmp_path / "r.csv"
+    write_pooled_csv(str(out), ["q1"])
+    data = out.read_bytes().rstrip(b"\r\n")  # strip the trailing newline
+    out.write_bytes(data)
+    pq_df = build_pq_frame(examples)
+    with pytest.raises(ValueError):
+        runner.atomic_merge_append(str(out), pq_df, examples)
+    # Original bytes untouched; no temp left behind.
+    assert out.read_bytes() == data
+    assert not os.path.exists(str(out) + ".merge.tmp")
+
+
+# --------------------------------------------------------------------------- #
+# full merged-bundle validation
+# --------------------------------------------------------------------------- #
+
+def test_validate_merged_bundle_accepts_good_bundle(tmp_path):
+    examples = [make_perq_example("q1", 10), make_perq_example("q2", 10)]
+    out = tmp_path / "r.csv"
+    write_pooled_csv(str(out), ["q1", "q2"])
+    pq_df = build_pq_frame(examples)
+    runner.atomic_merge_append(str(out), pq_df, examples)
+    merged = pd.read_csv(out, dtype={"example_id": str})
+    runner.validate_merged_bundle(merged, examples)  # does not raise
+
+
+def test_validate_merged_bundle_rejects_duplicate_setting_example_id(tmp_path):
+    examples = [make_perq_example("q1", 10), make_perq_example("q2", 10)]
+    out = tmp_path / "r.csv"
+    write_pooled_csv(str(out), ["q1", "q2"])
+    pq_df = build_pq_frame(examples)
+    runner.atomic_merge_append(str(out), pq_df, examples)
+    merged = pd.read_csv(out, dtype={"example_id": str})
+    # Collapse the 2nd per_question row onto the 1st id: keeps the per-setting
+    # counts at {pooled:2, per_question:2} and the total at 4, but creates a
+    # duplicate (per_question, q1) key -- isolating the dedup guard.
+    perq_idx = merged.index[merged["setting"] == "per_question"].tolist()
+    merged.loc[perq_idx[1], "example_id"] = merged.loc[perq_idx[0], "example_id"]
+    with pytest.raises(ValueError):
+        runner.validate_merged_bundle(merged, examples)
+
+
+def test_validate_merged_bundle_rejects_wrong_total_row_count(tmp_path):
+    examples = [make_perq_example("q1", 10), make_perq_example("q2", 10)]
+    out = tmp_path / "r.csv"
+    write_pooled_csv(str(out), ["q1", "q2"])
+    pq_df = build_pq_frame(examples)
+    runner.atomic_merge_append(str(out), pq_df, examples)
+    merged = pd.read_csv(out, dtype={"example_id": str})
+    # Drop a row -> no longer 2n.
+    with pytest.raises(ValueError):
+        runner.validate_merged_bundle(merged.iloc[:-1], examples)
