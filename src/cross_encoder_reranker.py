@@ -106,11 +106,24 @@ class CrossEncoderReranker:
         order. When there are fewer than top_k candidates, all of them are
         returned (reranked). An empty `candidates` yields an empty list without
         invoking the scorer.
+
+        The scorer contract is one score per candidate. We verify that exactly
+        before zipping: a scorer that returns too few or too many scores would
+        otherwise let `zip` silently drop candidates (or drop trailing scores),
+        producing a shorter reranked list with no error -- which downstream a
+        formal runner could serialize as an invalid, too-short result. Failing
+        here keeps that corruption from ever reaching an output file.
         """
         if not candidates:
             return []
         pairs = [(query, paragraph.text) for paragraph in candidates]
         scores = self._score(pairs)
+        if len(scores) != len(candidates):
+            raise ValueError(
+                f"scorer returned {len(scores)} score(s) for {len(candidates)} "
+                f"candidate(s); the scorer contract is exactly one score per "
+                f"candidate (a mismatch would silently drop candidates via zip)."
+            )
         ranked = sorted(
             zip(candidates, scores),
             key=lambda pair: pair[1],

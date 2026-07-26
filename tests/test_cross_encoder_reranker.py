@@ -14,6 +14,8 @@ import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+import pytest
+
 from src.data_loader import Paragraph
 from src.cross_encoder_reranker import CrossEncoderReranker
 
@@ -150,6 +152,38 @@ def test_rerank_titles_matches_rerank():
     assert titles == [p.title for p, _ in tuples]
 
 
+def test_rerank_accepts_exact_scorer_cardinality():
+    """Legal control for the cardinality guard: exactly one score per candidate
+    is accepted and reranks all of them."""
+    reranker = CrossEncoderReranker(scorer=fake_score)
+
+    results = reranker.rerank("cat", make_candidates(), top_k=4)
+
+    assert len(results) == len(make_candidates())
+
+
+def test_rerank_rejects_scorer_returning_too_few_scores():
+    """A scorer that under-returns must fail loudly: otherwise zip would
+    silently drop candidates and shorten the reranked list."""
+    def short_scorer(pairs):
+        return [1.0]  # one score regardless of how many candidates
+
+    reranker = CrossEncoderReranker(scorer=short_scorer)
+    with pytest.raises(ValueError):
+        reranker.rerank("cat", make_candidates(), top_k=4)
+
+
+def test_rerank_rejects_scorer_returning_too_many_scores():
+    """A scorer that over-returns must also fail loudly rather than silently
+    discard the extra scores."""
+    def long_scorer(pairs):
+        return [1.0] * (len(pairs) + 1)
+
+    reranker = CrossEncoderReranker(scorer=long_scorer)
+    with pytest.raises(ValueError):
+        reranker.rerank("cat", make_candidates(), top_k=4)
+
+
 if __name__ == "__main__":
     test_rerank_orders_by_score_descending()
     test_rerank_reorders_a_shuffled_shortlist()
@@ -160,4 +194,7 @@ if __name__ == "__main__":
     test_rerank_empty_candidates_returns_empty_without_scoring()
     test_rerank_ties_keep_incoming_order()
     test_rerank_titles_matches_rerank()
+    test_rerank_accepts_exact_scorer_cardinality()
+    test_rerank_rejects_scorer_returning_too_few_scores()
+    test_rerank_rejects_scorer_returning_too_many_scores()
     print("All cross_encoder_reranker tests passed.")
