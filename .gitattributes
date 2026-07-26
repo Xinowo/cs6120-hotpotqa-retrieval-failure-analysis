@@ -1,0 +1,7 @@
+# Raw retrieval run bundles are checksum-bearing source-of-truth artifacts:
+# each rankings.csv is serialized with LF terminators and its rankings_sha256
+# (recorded in manifest.json) is computed over those exact LF bytes and verified
+# by a binary read. With core.autocrlf=true a normal checkout would rewrite them
+# to CRLF and break their own checksum, so this tree must never undergo EOL
+# conversion or normalization. Treat every bundle file as binary (byte-exact).
+results/retrieval_runs/** -text
