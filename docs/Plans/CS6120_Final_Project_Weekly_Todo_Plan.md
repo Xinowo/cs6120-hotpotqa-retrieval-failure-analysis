@@ -63,11 +63,9 @@ AI-policy note: the metric definitions and their core computation logic in `eval
 
 - BM25 vs dense disagreement cases
 - Bridge vs comparison analysis
-- Dense semantic drift examples
-- First-hop-only failure examples
-- Comparison coverage failure examples
-- Lexical mismatch examples
-- Distractor entity examples
+- Exhaustive machine-generated gold-rank patterns for every pooled top-50 `(example_id, retriever)` unit
+- Notes-first manual review of selected coverage failures (Full@5 is the proposed follow-up criterion, pending owner freeze); reviewer notes may later support causal themes such as semantic drift, lexical mismatch, missing bridge evidence, incomplete comparison coverage, or distractor entities
+- Jointly derive, merge, split, and validate any human failure-reason taxonomy from the reviewed evidence instead of freezing categories in advance
 - Reranker rescue and damage cases
 
 ### Optional Extension
@@ -113,7 +111,7 @@ Every agent session must be logged (see session-log rule below), and agent-gener
 | Component / task | Why |
 |---|---|
 | `evaluator.py` metric logic (Any/Full/Partial Evidence Recall, reciprocal rank used for MRR@10/MRR@50) | The evidence coverage metrics are the project's evaluation methodology — a core intellectual contribution. |
-| `failure_analyzer.py` decision rules | The failure taxonomy and its operational labeling rules (including the first-hop-only vs missing-bridge-entity disambiguation) are the project's main research contribution. |
+| Human failure-reason taxonomy and any later `failure_analyzer.py` decision rules | The causal categories must be derived from reviewed evidence. If the team later operationalizes them, the definitions, merge/split decisions, and labeling rules are part of the project's main research contribution. |
 | Fine-tuning pair construction and training loop (if the extension is chosen) | Training loop logic is explicitly listed as not permitted for agents. |
 | Manual failure labeling and qualitative example analysis | Error analysis is research content. |
 | Report: research questions, results interpretation, failure analysis, discussion | AI may only proofread and reword; it may not produce the intellectual content. |
@@ -172,7 +170,7 @@ Jiajun's core contribution can be framed as:
 Both Xin and Jiajun should contribute to:
 
 ```text
-Final failure taxonomy
+Evidence-bearing manual review notes and the jointly derived/refined failure-reason taxonomy
 Qualitative example selection
 Final report editing
 Presentation slides
@@ -180,7 +178,7 @@ AI Usage Declaration
 Explanation Test
 ```
 
-The failure taxonomy should be shared because it is part of the project's intellectual contribution.
+The manual interpretation and any eventual failure-reason taxonomy should be shared because they are part of the project's intellectual contribution. Machine-generated `rank_pattern` values are structural descriptions, not causal labels.
 
 ---
 
@@ -362,7 +360,7 @@ It should answer:
 ## Xin Tasks
 
 - Implement the reranker: off-the-shelf cross-encoder (e.g. `cross-encoder/ms-marco-MiniLM-L-6-v2`) over dense top-50 (pooled) / all candidates (per-question); save reranked results to CSV.
-- Build the failure review pipeline: structured run outputs (`results/runs/<run_id>/` with per-question details, metrics, and run config) + a static HTML page for browsing and manually labeling failures. Xin's personal tooling, can start early; design: `docs/specs/2026-07-12-failure-review-pipeline-design.md`. Labels export to `results/annotations/annotations.csv`.
+- Maintain the failure review pipeline: structured run outputs (`results/runs/<run_id>/` with per-question details, metrics, and run config), the accepted pooled top-50 rank-pattern artifact (`gold_rank_patterns.csv`), and a static HTML review page. The current page/filter contract may change for the notes-first Full@5 review; do not treat its existing Any@5 filter or label-first form as the final design. Human notes export to `results/annotations/annotations.csv`, where `label` may remain blank during open coding.
 - Analyze dense retrieval failures.
 - Find dense semantic drift examples (the pooled corpus is where drift can actually occur).
 - Analyze bridge vs comparison performance.
@@ -376,35 +374,34 @@ It should answer:
 - Analyze BM25 failures.
 - Find lexical mismatch examples.
 - Find distractor entity examples.
-- Implement disagreement case extractor.
-- Extend the evaluator with reranker rescue/damage counting (compare gold coverage in top-k before vs after reranking).
-- Export failure cases to CSV. *(To be discussed with Jiajun: the failure-review runner now writes structured per-run outputs (`results/runs/<run_id>/details.jsonl`); the code has landed, first real run still pending. Once a run exists, this export could be derived from it instead of re-implementing the filtering. Suggestion: hold off implementing this script until that first real run is available, to avoid rework — task content unchanged until discussed.)*
+- Implement disagreement case extractor. **Reported complete by Jiajun; awaiting his Git push and independent audit before acceptance.**
+- Extend the evaluator with reranker rescue/damage counting (compare gold coverage in top-k before vs after reranking). **Reported complete by Jiajun; awaiting his Git push and independent audit before acceptance.**
+- Coordinate any separate failure-case CSV export with the existing structured run outputs and accepted `gold_rank_patterns.csv`; decide whether it is still needed after the incoming disagreement extractor is available for audit.
 - Prepare BM25 interpretation notes.
 
 ## Shared Tasks
 
-- Finalize failure taxonomy.
-- Write explicit decision rules for each failure category (including the first-hop-only vs missing-bridge-entity disambiguation rule) and validate them against ~20 manually labeled examples. The manual labels live in `results/annotations/annotations.csv` (column schema: `docs/specs/2026-07-12-failure-review-pipeline-design.md` §6.1) — the shared contract is the CSV format, not the tool; label via Xin's HTML review page or any editor. **AI policy: these rules and their implementation in `failure_analyzer.py` are the project's core research contribution and must be hand-written by team members, not generated by a coding agent.**
+- Use the deterministic 10-class `rank_pattern` partition from `docs/specs/2026-07-26-hotpotqa_gold_rank_pattern_partition_spec.md` for machine-readable structure. The accepted implementation is `src/rank_pattern.py` plus `scripts/reporting/build_gold_rank_patterns.py` (commit `c978c97`); `rank_pattern` must never be written into `annotations.csv.label`.
+- Conduct notes-first manual review: record concrete evidence in `results/annotations/annotations.csv`; a non-empty note with an empty `label` counts as reviewed during open coding. After a review batch, jointly group, refine, merge, or split candidate causal reasons. Only after the categories converge should the team hand-write definitions/decision rules and validate them against reviewed examples. **AI policy: the human interpretations, category decisions, and any operational rules are the project's core research contribution and must be written by team members.**
+- Before changing the HTML or starting the main manual-review batch, jointly resolve and sign off the open questions in `docs/specs/2026-07-27-manual-failure-review-protocol.md` (currently a draft discussion worksheet).
 - Select 10–20 qualitative examples.
 - Build bridge vs comparison result table.
 - Build disagreement cases table.
-- Pick the slide-content snapshot by ~7/26: main results table, bridge vs comparison table, reranker rescue/damage table, failure-category highlights, 2–4 strongest qualitative examples. (Soft cut for building the slides — not a results freeze; results may keep evolving after the presentation.)
+- Pick the slide-content snapshot by ~7/26: main results table, bridge vs comparison table, reranker rescue/damage table, structural rank-pattern highlights, any manually supported reason themes, and 2–4 strongest qualitative examples. (Soft cut for building the slides — not a results freeze; results may keep evolving after the presentation.)
 - Build the presentation slides together and rehearse. **AI policy: slides and speaker notes must be created by team members; AI may give structural advice and proofread only — no AI-generated decks.**
 - Start writing Results and Failure Analysis notes (these feed both the slides and the report). **AI policy: results interpretation and failure analysis are research content — write them yourselves; AI may only proofread.**
 - Update the AI session log (docs/Completion_Log/) for any coding-agent sessions this week.
 
-## Failure Taxonomy
+## Failure Analysis: Machine Structure + Human Reasons
 
-Use these failure categories:
+Keep the two layers separate:
 
-| Failure mode | Meaning |
+| Layer | Contract |
 |---|---|
-| First-hop-only failure | Retriever finds the passage related to the explicit entity but misses the second supporting passage. |
-| Missing bridge entity | Retriever fails to retrieve evidence about the bridge entity needed for the second hop. |
-| Comparison coverage failure | Retriever covers only one side of a comparison question. |
-| Lexical mismatch | BM25 fails because the question and evidence use different surface forms. |
-| Dense semantic drift | Dense retrieval finds semantically related but non-evidential passages. |
-| Distractor entity failure | Retriever retrieves a similar-looking but wrong entity or passage. |
+| Machine structure | `rank_pattern` is a deterministic, mutually exclusive, collectively exhaustive 10-class partition over the two gold ranks in bands 1–5, 6–10, 11–50, and absent from top 50. It is generated for all pooled top-50 units under `gold_rank_partition_v1`; see `docs/specs/2026-07-26-hotpotqa_gold_rank_pattern_partition_spec.md`. It describes *where* the gold evidence ranked and computes no metric or causal failure reason. |
+| Human reason | Reviewers first write evidence-bearing notes explaining *why* a selected case may have failed. Semantic drift, lexical mismatch, missing bridge evidence, incomplete comparison coverage, and distractor entities are candidate themes—not a frozen or exhaustive label set. The team derives and validates any taxonomy only after reviewing a batch. |
+
+The HTML review criterion is a separate owner decision. The current Any@5 failure filter excludes every unit with at least one gold in the top five; switching to Full@5 would include partial-coverage cases and therefore increase the manual-review workload. Do not change that criterion, its cutoff, or its delivery model until the next review-stage design is frozen.
 
 ## Expected Output
 
@@ -412,12 +409,12 @@ By the end of Week 3, the team should have:
 
 ```text
 results/subgroup_results.csv
-results/disagreement_cases.csv
-results/failure_cases.csv
 results/rerank_results.csv
-results/rerank_rescue_damage.csv
 results/runs/<run_id>/          (details.jsonl / metrics.json / config.json per retrieval run)
-results/annotations/annotations.csv   (manual failure labels; validation set for failure_analyzer.py)
+results/runs/<run_id>/gold_rank_patterns.csv   (accepted 10-class machine partition; all pooled top-50 units)
+results/annotations/annotations.csv   (notes-first manual review; label may be blank during open coding)
+results/disagreement_cases.csv        (reported complete by Jiajun; pending push and audit)
+results/rerank_rescue_damage.csv      (reported complete by Jiajun; pending push and audit)
 final presentation slides (rehearsed, ready for 7/28)
 ```
 
@@ -641,7 +638,7 @@ Is the final package clean and reproducible?
 |---|---|---|---|---|
 | Week 1, 7/7–7/13 | Run first retrieval loop | Dense prototype | Data loader + BM25 + basic Any Evidence Recall@k | 10-example debug output |
 | Week 2, 7/14–7/20 | Complete core experiments | Dense stable + pooled/distractor 500-example runs | Evaluator + BM25 pooled/distractor runs + pooled corpus build | Main results table v1 + stability checkpoint |
-| Week 3, 7/21–7/27 | Reranker + failure analysis + slides (**presentation 7/28**) | Reranker implementation + dense semantic drift + bridge/comparison | BM25 lexical mismatch + disagreement extractor + rescue/damage metrics | Failure-labeling rules + qualitative examples + slide snapshot ~7/26 + rehearsed slides |
+| Week 3, 7/21–7/27 | Reranker + failure analysis + slides (**presentation 7/28**) | Reranker implementation + rank-pattern artifact + dense/bridge/comparison review | BM25 review + disagreement extractor + rescue/damage metrics (reported complete; pending push/audit) | Accepted machine rank-pattern partition + notes-first review plan + qualitative evidence + slide snapshot ~7/26 + rehearsed slides |
 | Week 4, 7/28–8/3 | **Present 7/28**, then freeze experiments and demo | Present + fine-tuning decision/work (if chosen) + discussion draft | Final runner + demo.py + README | Final CSV/tables/figures + feedback notes + report skeleton |
 | Week 5, 8/4–8/10 | Finish report | Discussion + failure analysis writing | Dataset/method/eval writing | Report v2 + AI declaration |
 | Final, 8/11–8/14 | Clean submission | Proofread | Clone test + package | Final submission (8/14) |
