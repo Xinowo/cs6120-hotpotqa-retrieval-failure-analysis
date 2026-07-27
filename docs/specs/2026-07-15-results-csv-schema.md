@@ -1,3 +1,8 @@
+---
+status: active
+last_updated: 2026-07-27
+---
+
 # Results CSV Schema
 
 **Author:** Xin · **Original date:** 2026-07-15 · **Status:** Final, amended 2026-07-17

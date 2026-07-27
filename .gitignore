@@ -8,7 +8,6 @@
 docs/Local/
 docs/Completion_Log/Xin_*
 docs/specs/*.zh.md
-.claude
 
 # Failure-review run directories (large intermediate products: details.jsonl
 # carries full paragraph text, plus generated failures_review.html). Code
