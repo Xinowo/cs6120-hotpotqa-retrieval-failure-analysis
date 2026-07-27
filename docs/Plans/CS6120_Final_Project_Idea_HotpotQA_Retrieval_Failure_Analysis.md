@@ -1,3 +1,8 @@
+---
+status: reference
+last_updated: 2026-07-27
+---
+
 # CS6120 Final Project Idea Reference Document
 
 ## Diagnosing Multi-Hop Retrieval Failures in RAG on HotpotQA

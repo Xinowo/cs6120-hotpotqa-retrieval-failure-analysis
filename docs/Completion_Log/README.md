@@ -1,3 +1,7 @@
+---
+last_updated: 2026-07-27
+---
+
 # Completion Logs
 
 Per-member weekly completion logs: session records and the source for each

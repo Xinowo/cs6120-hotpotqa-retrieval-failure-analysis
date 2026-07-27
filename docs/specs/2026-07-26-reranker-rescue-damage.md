@@ -1,3 +1,8 @@
+---
+status: active
+last_updated: 2026-07-27
+---
+
 # Reranker Rescue / Damage Analysis — Spec
 
 - Date: 2026-07-26

@@ -1,3 +1,8 @@
+---
+status: draft
+last_updated: 2026-07-27
+---
+
 # Rank-Pattern Partition Specification for HotpotQA Gold Evidence
 
 **Document type:** implementation specification

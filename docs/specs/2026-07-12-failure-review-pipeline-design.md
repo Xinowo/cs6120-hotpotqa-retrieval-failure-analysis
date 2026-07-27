@@ -1,3 +1,8 @@
+---
+status: active
+last_updated: 2026-07-27
+---
+
 # Failure Review Pipeline — Design Doc
 
 - Date: 2026-07-12
