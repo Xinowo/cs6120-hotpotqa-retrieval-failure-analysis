@@ -184,20 +184,39 @@ same aggregation group and identical valid-example set; validators must enforce 
 
 ## 6. Manifest requirement
 
-Every v2 eval manifest must store:
+Every artifact that uses these metrics stores three independent version identifiers. The metric-definition and
+evaluation-protocol identifiers are fixed for `retrieval_metrics_v2`; only the physical `eval_schema_version` selects
+the carrier, and its permitted values are governed by the status table below rather than by a single hard-coded value:
 
 ```json
 {
   "metric_definition_version": "retrieval_metrics_v2",
   "evaluation_protocol_version": "hotpotqa_retrieval_protocol_v2",
-  "eval_schema_version": "retrieval_eval_schema_v2"
+  "eval_schema_version": "<a currently supported physical eval-schema carrier from the status table below>"
 }
 ```
 
 The three versions are independent: formula or edge-case changes require a new metric-definition version; setting,
 cutoff, or required-depth changes require a new evaluation-protocol version; file-shape or serialization changes
-require a new eval-schema version. An evaluator must reject any unsupported version rather than silently substituting
-another contract.
+require a new eval-schema version. Every artifact that declares `metric_definition_version = retrieval_metrics_v2`
+must also declare `evaluation_protocol_version = hotpotqa_retrieval_protocol_v2`; these two identifiers do not vary in
+this contract. An evaluator must reject any unsupported version rather than silently substituting another contract.
+
+**Physical eval-schema carriers of `retrieval_metrics_v2`.** The metric formulas, edge cases, and canonical
+identifiers in §§1-5 and §7 are unchanged across every physical carrier listed below; only the manifest/bundle shape
+differs. The `metrics_v2` segment of an `eval_id` identifies this metric definition, not the physical eval-schema
+version, so it is unchanged under every carrier. Which `eval_schema_version` a conforming evaluator accepts is fixed
+by this single status table, and no separate rule pins `eval_schema_version` to one value:
+
+| `eval_schema_version` | Owning spec | Manifest/bundle shape | Status |
+|---|---|---|---|
+| `retrieval_eval_schema_v2` | `docs/specs/2026-07-20-retrieval-eval-schema-v2.md` | full-bundle-only | Frozen; a supported carrier |
+| `retrieval_eval_schema_v3` | `docs/specs/2026-07-26-retrieval-eval-schema-v3.md` | adds an explicit per-example-only manifest mode alongside the full bundle | Frozen (passed independent contract review 2026-07-26); a supported carrier |
+
+Both `retrieval_eval_schema_v2` and `retrieval_eval_schema_v3` are frozen, supported carriers of these metrics with no
+change to the metric definition. A conforming evaluator accepts the exact declared `eval_schema_version` when it is one
+of these supported carriers and rejects any other value fail-closed. An evaluator always dispatches on the exact
+declared `eval_schema_version` and never accepts one eval-schema shape while it is labelled as another.
 
 ## 7. Verified golden examples
 
