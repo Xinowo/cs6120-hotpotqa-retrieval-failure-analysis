@@ -374,14 +374,14 @@ It should answer:
 - Analyze BM25 failures.
 - Find lexical mismatch examples.
 - Find distractor entity examples.
-- Implement disagreement case extractor. **Reported complete by Jiajun; awaiting his Git push and independent audit before acceptance.**
-- Extend the evaluator with reranker rescue/damage counting (compare gold coverage in top-k before vs after reranking). **Reported complete by Jiajun; awaiting his Git push and independent audit before acceptance.**
+- Implement disagreement case extractor. **Pushed by Jiajun in `1b8f10d` and integrated locally; awaiting independent audit before acceptance.**
+- Add reranker rescue/damage counting (compare gold coverage in top-k before vs after reranking). **Pushed by Jiajun in `1b8f10d` and integrated locally; awaiting independent audit before acceptance.**
 - Coordinate any separate failure-case CSV export with the existing structured run outputs and accepted `gold_rank_patterns.csv`; decide whether it is still needed after the incoming disagreement extractor is available for audit.
 - Prepare BM25 interpretation notes.
 
 ## Shared Tasks
 
-- Use the deterministic 10-class `rank_pattern` partition from `docs/specs/2026-07-26-hotpotqa_gold_rank_pattern_partition_spec.md` for machine-readable structure. The accepted implementation is `src/rank_pattern.py` plus `scripts/reporting/build_gold_rank_patterns.py` (commit `c978c97`); `rank_pattern` must never be written into `annotations.csv.label`.
+- Use the deterministic 10-class `rank_pattern` partition from `docs/specs/2026-07-26-hotpotqa_gold_rank_pattern_partition_spec.md` for machine-readable structure. The accepted implementation is `src/rank_pattern.py` plus `scripts/reporting/build_gold_rank_patterns.py` (rebased commit `741a34f`); `rank_pattern` must never be written into `annotations.csv.label`.
 - Conduct notes-first manual review: record concrete evidence in `results/annotations/annotations.csv`; a non-empty note with an empty `label` counts as reviewed during open coding. After a review batch, jointly group, refine, merge, or split candidate causal reasons. Only after the categories converge should the team hand-write definitions/decision rules and validate them against reviewed examples. **AI policy: the human interpretations, category decisions, and any operational rules are the project's core research contribution and must be written by team members.**
 - Before changing the HTML or starting the main manual-review batch, jointly resolve and sign off the open questions in `docs/specs/2026-07-27-manual-failure-review-protocol.md` (currently a draft discussion worksheet).
 - Select 10–20 qualitative examples.
@@ -413,8 +413,8 @@ results/rerank_results.csv
 results/runs/<run_id>/          (details.jsonl / metrics.json / config.json per retrieval run)
 results/runs/<run_id>/gold_rank_patterns.csv   (accepted 10-class machine partition; all pooled top-50 units)
 results/annotations/annotations.csv   (notes-first manual review; label may be blank during open coding)
-results/disagreement_cases.csv        (reported complete by Jiajun; pending push and audit)
-results/rerank_rescue_damage.csv      (reported complete by Jiajun; pending push and audit)
+results/disagreement_cases.csv        (implementation pushed by Jiajun; pending independent audit)
+results/rerank_rescue_damage.csv      (implementation pushed by Jiajun; pending independent audit)
 final presentation slides (rehearsed, ready for 7/28)
 ```
 
@@ -638,7 +638,7 @@ Is the final package clean and reproducible?
 |---|---|---|---|---|
 | Week 1, 7/7–7/13 | Run first retrieval loop | Dense prototype | Data loader + BM25 + basic Any Evidence Recall@k | 10-example debug output |
 | Week 2, 7/14–7/20 | Complete core experiments | Dense stable + pooled/distractor 500-example runs | Evaluator + BM25 pooled/distractor runs + pooled corpus build | Main results table v1 + stability checkpoint |
-| Week 3, 7/21–7/27 | Reranker + failure analysis + slides (**presentation 7/28**) | Reranker implementation + rank-pattern artifact + dense/bridge/comparison review | BM25 review + disagreement extractor + rescue/damage metrics (reported complete; pending push/audit) | Accepted machine rank-pattern partition + notes-first review plan + qualitative evidence + slide snapshot ~7/26 + rehearsed slides |
+| Week 3, 7/21–7/27 | Reranker + failure analysis + slides (**presentation 7/28**) | Reranker implementation + rank-pattern artifact + dense/bridge/comparison review | BM25 review + disagreement extractor + rescue/damage metrics (pushed; pending independent audit) | Accepted machine rank-pattern partition + notes-first review plan + qualitative evidence + slide snapshot ~7/26 + rehearsed slides |
 | Week 4, 7/28–8/3 | **Present 7/28**, then freeze experiments and demo | Present + fine-tuning decision/work (if chosen) + discussion draft | Final runner + demo.py + README | Final CSV/tables/figures + feedback notes + report skeleton |
 | Week 5, 8/4–8/10 | Finish report | Discussion + failure analysis writing | Dataset/method/eval writing | Report v2 + AI declaration |
 | Final, 8/11–8/14 | Clean submission | Proofread | Clone test + package | Final submission (8/14) |
