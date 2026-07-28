@@ -5,7 +5,7 @@ last_updated: 2026-07-27
 
 # Results CSV Schema
 
-**Author:** Xin · **Original date:** 2026-07-15 · **Status:** Final, amended 2026-07-17
+**Author:** Xin · **Original date:** 2026-07-15 · **Status:** Final, amended 2026-07-17 and 2026-07-27
 **Applies to:** `results/dense_results.csv`, `results/bm25_results.csv`, and `results/rerank_results.csv`
 
 ## 2026-07-17 protocol amendment
@@ -72,6 +72,58 @@ must be performed separately for each intended group, normally at least by
 Booleans are written as `1`/`0`, never `True`/`False` strings. Empty cells
 represent a deliberately uncomputed metric and are read as `NaN`; pandas
 aggregation therefore skips them.
+
+### 2026-07-27 amendment — accepted physical spellings of a metric cell
+
+The table above gives the **canonical write form**: a binary recall cell is
+written `1`, `0`, or empty. Two existing formal artifacts do not match it.
+Because the per-question `@10` rows are deliberately blank, pandas serialized
+that whole column as float, so the **pooled `@10`** cells of
+`results/bm25_results.csv` and `results/dense_results.csv` physically read
+`0.0`/`1.0`. `results/rerank_results.csv` writes plain `0`/`1`.
+
+Xin resolved this on 2026-07-27 by freezing a **narrow compatibility rule**
+rather than regenerating the inputs. A reader of these files must accept
+exactly the physical lexemes
+
+```text
+0    1    0.0    1.0    <empty, where this table permits a blank>
+```
+
+and must refuse every other spelling — fractions (including precision-adjacent
+ones such as `0.00000000000000000001`), scientific notation, signs, padding
+zeros, padding whitespace, booleans, and null-like words. The list is closed and
+matched **on the raw text before any numeric conversion**, because a
+nullable-integer cast rounds a near-0 or near-1 fraction into a clean integer
+and hides the defect.
+
+`0.0`/`1.0` are accepted for legacy-artifact compatibility only. New runners
+should still write `1`/`0`; retiring the float spellings requires a further
+owner decision and a regeneration of the affected inputs.
+
+Missing-ness is decided per column, never by a global null-token set: only a
+physically empty metric cell is missing, while the strings `None`, `NA`,
+`null`, and `NaN` are ordinary text wherever they appear in a textual column.
+An empty `retrieved_titles` cell means an empty retrieved list, and must not be
+read as a missing value or stringified back into a title.
+
+The phrase "where this table permits a blank" resolves to exactly three cells,
+and a reader must enforce it as such: `any_evidence_recall@10`,
+`full_evidence_recall@10`, and `partial_evidence_recall@10` in a `per_question`
+row, per the storage and metric policy table below. Every other metric cell is
+populated in a compliant artifact — pooled recall at all three cutoffs,
+per-question recall at `@2`/`@5`, and both `reciprocal_rank_at_*` columns in
+either setting — so a blank there indicates a truncated or partially generated
+file and must be refused rather than read as an uncomputed metric. The `[0,1]`
+float columns (rows 15–19) are likewise enforced as a **semantic domain**: the
+exact written decimal must satisfy `0 <= value <= 1` before conversion, so a
+negative, a value greater than one, and an overflow spelling such as `1e9999`
+are refused even though each is a well-formed finite decimal.
+
+The reader that implements this rule is
+`scripts/reporting/formal_result_inputs.py`; the full contract, including the
+refusal table, is `docs/specs/2026-07-27-bm25-dense-reporting-contracts.md` §1.1
+and §1.2.
 
 ## Storage and metric policy
 

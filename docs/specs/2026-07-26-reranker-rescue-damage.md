@@ -19,6 +19,16 @@ last_updated: 2026-07-27
   must be identical across both settings and both methods); added explicit reject/accept controls for
   same-id cross-setting metadata drift, populated per_question `@10` cells, and wrong physical row
   order. No agreed criterion changed.
+- Revision: 2026-07-27 (DR-004 round-3 corrective pass) — recorded Xin's owner decision on the
+  physical spelling of a binary cell in §2 (a closed lexeme set, validated on the raw text before
+  any conversion) and extended the §2 reject/accept controls accordingly. This documents how an
+  existing input is *read*; no criterion, cutoff, grouping, output column, or result number changed.
+- Revision: 2026-07-27 (DR-004 round-4 corrective pass) — recorded in §2 that the shared reader
+  enforces the `[0,1]` float metric columns as a *semantic domain* on the raw decimal, and that a
+  physically blank metric cell is legal only in the three per_question `@10` recall columns this
+  section already requires to be blank; added the matching reject/accept controls. Both are
+  narrowings toward the shared schema, not new criteria: no cutoff, grouping, output column, or
+  result number changed, and the accepted formal inputs are unaffected.
 - Applies to (inputs): `results/dense_results.csv` (first stage), `results/rerank_results.csv` (second stage)
 - Produces (output): `results/rerank_rescue_damage.csv`
 - Related: `docs/specs/2026-07-15-results-csv-schema.md` (the shared long-format result schema both inputs follow)
@@ -79,6 +89,44 @@ Join key: `(setting, example_id)`. The join **must be one-to-one**. Before any c
   be exactly `0` or `1`; an empty or non-0/1 value in a consumed cell triggers fail-fast, never a
   silent row drop.
 
+**Physical spelling of a binary cell (owner decision, Xin, 2026-07-27):**
+
+- "exactly `0` or `1`" above is the rule on the **value**. On the **file**, a binary recall cell is
+  accepted only if its physical lexeme is exactly `0`, `1`, `0.0`, `1.0`, or empty where a blank is
+  permitted. `0.0`/`1.0` are admitted for legacy-artifact compatibility, because the pooled `@10`
+  columns of `results/dense_results.csv` serialized as float once the per-question rows were left
+  blank; they convert to the genuine integers `0`/`1` and then satisfy the value rule above;
+- the lexeme is matched **on the raw text before any numeric conversion**, and the list is closed.
+  Every other spelling refuses — in particular a precision-adjacent fraction such as
+  `0.00000000000000000001` or `0.99999999999999999999`, which a nullable-integer cast would
+  otherwise round to a clean `0`/`1` and publish as a different binary outcome;
+- a **populated** null-like token (`NaN`, `NA`, `null`, `None`, `<NA>`) in a per_question `@10` cell
+  is a populated cell, not the blank this section requires, and refuses. Only a physically empty
+  field satisfies the blank rule;
+- textual columns are never NA-inferred, so `None` / `NA` / `null` / `NaN` are legal `question` or
+  `gold_titles` strings; `retrieved_titles` must be a string, and an empty one is the approved empty
+  retrieved list.
+
+**Where a blank metric cell is legal, and the `[0,1]` float domain:**
+
+- "empty where a blank is permitted" above means exactly the three columns this section already
+  requires to be blank: `any_evidence_recall@10`, `full_evidence_recall@10`, and
+  `partial_evidence_recall@10` in a `per_question` row. Every other metric cell of a compliant
+  bundle is populated — pooled recall at `@2`/`@5`/`@10`, per_question recall at `@2`/`@5`, and both
+  `reciprocal_rank_at_*` columns in either setting — so a blank there is a truncated or partially
+  generated file and refuses at read time, before any counting and before the output is touched;
+- `partial_evidence_recall@k` and `reciprocal_rank_at_*` are `[0,1]` by the shared schema, and that
+  range is enforced as a **semantic domain on the raw decimal**, before conversion. A negative, a
+  value greater than one, and an overflow spelling such as `1e9999` refuse even though each is a
+  well-formed finite decimal, and the converted float is re-checked as finite and in range. This
+  matters for the same reason as the precision-adjacent binary fractions: `float()` rounds
+  `1.0000000000000001` to exactly `1.0` and `-1e-400` to `-0.0`, so a conversion-first check would
+  admit both. Partial recall is never a rescue/damage criterion (§4), but it is a registered column
+  of both accepted inputs and must not carry an impossible value.
+
+The full refusal table is `docs/specs/2026-07-27-bm25-dense-reporting-contracts.md` §1.1–§1.2; the
+shared reader is `scripts/reporting/formal_result_inputs.py`.
+
 **Required reject / accept controls (input):**
 
 - reject a `results/dense_results.csv` whose `method` is uniformly `bm25` (or mixed); accept uniform
@@ -92,8 +140,21 @@ Join key: `(setting, example_id)`. The join **must be one-to-one**. Before any c
   field differing between an ID's pooled and per_question rows); accept the bundle where all four rows
   per `example_id` agree on those fields;
 - reject a populated per_question `@10` recall cell (any of the three `@10` recall columns non-empty
-  in a per_question row); accept blank per_question `@10` cells;
-- reject a consumed cell that is empty or not `0`/`1`; accept `0`/`1`.
+  in a per_question row), **including a literal `NaN`/`NA`/`null`/`None` token**; accept only a
+  physically blank per_question `@10` cell;
+- reject a consumed cell that is empty or not `0`/`1`; accept `0`/`1`;
+- reject a binary cell whose physical lexeme is outside `{0, 1, 0.0, 1.0, empty}` — in particular a
+  precision-adjacent fraction, scientific notation, a sign, a padding zero or space, a boolean, or a
+  null-like word; accept each of the four approved spellings as its legal twin;
+- reject a blank metric cell outside the three per_question `@10` recall columns — a blank pooled
+  recall cell, a blank per_question `@2`/`@5` cell, or a blank `reciprocal_rank_at_10` /
+  `reciprocal_rank_at_50` cell — in either setting and whether or not that column is consumed;
+  accept the populated legal twin, and accept the blank in the three per_question `@10` slots;
+- reject a `partial_evidence_recall@k` or `reciprocal_rank_at_*` cell whose exact decimal is outside
+  the inclusive `[0,1]` domain — a negative, a value greater than one, an overflow spelling such as
+  `1e9999`, or a boundary-adjacent decimal that `float()` would round into range; accept `0`, `1`,
+  an interior decimal, and in-range scientific notation as its legal twin;
+- reject a missing or non-string `retrieved_titles`; accept a normal list and an empty one.
 
 ## 3. Concept: per-question paired comparison (dense → rerank)
 

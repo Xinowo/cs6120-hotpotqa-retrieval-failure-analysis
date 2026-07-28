@@ -38,9 +38,20 @@ PROJECT_ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 sys.path.insert(0, PROJECT_ROOT)
 sys.path.insert(0, HERE)
 
+import numpy as np
 import pandas as pd
 
 from src.results_schema import RESULT_COLUMNS
+# Shared physical input domains (structure-level plumbing only): the same
+# strict metadata/consumed-cell predicates the BM25-vs-dense reporting tools
+# use, so the two paths cannot drift apart in what they accept.
+from scripts.reporting.formal_result_inputs import (
+    META_COLUMNS,
+    read_formal_result_csv,
+    validate_consumed_binary,
+    validate_metadata_domains,
+    validate_typed_metric_frame,
+)
 # The independent oracle re-uses the general summarizer's group-mean path
 # (a different code route than the counting below), exactly as §9.5 requires.
 from summarize_results import summarize
@@ -83,8 +94,7 @@ RATE_COLUMNS = [
     "rescue_given_dense_miss", "damage_given_dense_hit",
 ]
 
-_META_COLUMNS = ["question_type", "level", "question", "gold_titles"]
-_JOIN_KEYS = ["setting", "example_id"] + _META_COLUMNS
+_JOIN_KEYS = ["setting", "example_id"] + META_COLUMNS
 
 
 # ─────────────────────────── §2  INPUT CONTRACT ──────────────────────────────
@@ -93,6 +103,10 @@ def _validate_one_file(df, source, expected_method):
     """Per-file structural contract (§2). Fail-fast on any violation."""
     if list(df.columns) != RESULT_COLUMNS:
         raise ValueError(f"{source}: columns do not match RESULT_COLUMNS exactly.")
+
+    # Closed upstream value domains: required metadata is non-null text, and
+    # question_type / level stay inside the shared schema's vocabularies.
+    validate_metadata_domains(df, source)
 
     methods = set(df["method"].unique())
     if methods != {expected_method}:
@@ -119,16 +133,38 @@ def _validate_one_file(df, source, expected_method):
     ):
         raise ValueError(f"{source}: pooled and per_question ID sets differ (§2).")
 
-    # Consumed-cell contract (§2): every cell we will actually read must be 0/1;
-    # per_question @10 recall cells must stay blank (never consumed).
-    for criterion, setting, k in VALID_COMBINATIONS:
-        col = f"{criterion}@{k}"
-        cells = df[df.setting == setting][col]
-        if not cells.isin([0, 1]).all():
+    # Frozen cardinality (§2): exactly 1000 rows = 500 pooled + 500 per_question.
+    if len(df) != 1000:
+        raise ValueError(
+            f"{source}: expected exactly 1000 rows (§2), got {len(df)}."
+        )
+    for setting in ("pooled", "per_question"):
+        sub = df[df.setting == setting]
+        if len(sub) != 500:
             raise ValueError(
-                f"{source}: consumed cell {col} in setting {setting!r} "
-                f"has empty or non-0/1 values (§2)."
+                f"{source}: setting {setting!r} must have exactly 500 rows (§2), "
+                f"got {len(sub)}."
             )
+        # Frozen §7 group counts (overall=500, bridge=404, comparison=96),
+        # checked before counting so a partial/malformed run cannot be
+        # published and the bridge/comparison subgroups always partition the
+        # population. The closed question_type vocabulary itself was already
+        # enforced above by validate_metadata_domains.
+        counts = sub["question_type"].value_counts()
+        n_bridge, n_comparison = int(counts.get("bridge", 0)), int(counts.get("comparison", 0))
+        if n_bridge != 404 or n_comparison != 96:
+            raise ValueError(
+                f"{source}: setting {setting!r} question_type counts must be "
+                f"bridge=404, comparison=96 (§7), got bridge={n_bridge}, "
+                f"comparison={n_comparison}."
+            )
+
+    # Consumed-cell contract (§2): every cell we will actually read must be a
+    # plain integer 0/1 (bool, float 0.0/1.0, numeric string, and empty cells
+    # are refused before any int() conversion); per_question @10 recall cells
+    # must stay blank (never consumed).
+    for criterion, setting, k in VALID_COMBINATIONS:
+        validate_consumed_binary(df, f"{criterion}@{k}", setting, source)
     pq = df[df.setting == "per_question"]
     for col in ("any_evidence_recall@10", "full_evidence_recall@10",
                 "partial_evidence_recall@10"):
@@ -136,6 +172,15 @@ def _validate_one_file(df, source, expected_method):
             raise ValueError(
                 f"{source}: per_question {col} must be blank (K policy, §2)."
             )
+
+    # The shared typed-frame metric contract, run last so the rescue-specific
+    # messages above keep reporting the defects they name. It adds the other
+    # half of the same rule for a frame that never passed the shared reader:
+    # every other metric slot must be populated, every populated binary cell
+    # must be a genuine integer 0/1, and every partial/reciprocal-rank cell must
+    # be numeric, finite, and in [0, 1] — for the columns this counting never
+    # reads as well as the seven it does.
+    validate_typed_metric_frame(df, source)
 
 
 def _validate_cross(dense, rerank):
@@ -151,8 +196,12 @@ def _validate_cross(dense, rerank):
 
     # Each example_id's metadata must be identical across all four
     # (method, setting) rows — binds across both methods AND both settings.
+    # Missing values participate in the comparison, so a value present on one
+    # side and absent on the other counts as drift instead of being ignored.
     combined = pd.concat([dense, rerank], ignore_index=True)
-    nunique = combined.groupby("example_id")[_META_COLUMNS].nunique()
+    nunique = combined.groupby("example_id", dropna=False)[META_COLUMNS].nunique(
+        dropna=False
+    )
     drift = nunique[(nunique > 1).any(axis=1)]
     if not drift.empty:
         raise ValueError(
@@ -163,8 +212,8 @@ def _validate_cross(dense, rerank):
 
 def load_and_validate_inputs(dense_path, rerank_path):
     """Load both formal result CSVs and enforce the full §2 contract."""
-    dense = pd.read_csv(dense_path)
-    rerank = pd.read_csv(rerank_path)
+    dense = read_formal_result_csv(dense_path)
+    rerank = read_formal_result_csv(rerank_path)
     _validate_one_file(dense, dense_path, expected_method="dense")
     _validate_one_file(rerank, rerank_path, expected_method="rerank")
     _validate_cross(dense, rerank)
@@ -183,7 +232,15 @@ def build_paired_frame(dense, rerank):
 
     Both are 0/1 for the valid (criterion, setting, k) combinations, since
     load_and_validate_inputs already enforced that.
+
+    This is a public function that accepts already-created result frames, so it
+    re-applies the shared typed metric contract to both of them rather than
+    trusting its caller: a frame built or mutated in memory must satisfy the
+    same placement, integer-binary, and `[0,1]` invariants as one that came
+    through the reader, before any join or count can consume it.
     """
+    validate_typed_metric_frame(dense, "dense")
+    validate_typed_metric_frame(rerank, "rerank")
     merged = dense.merge(
         rerank, on=_JOIN_KEYS, suffixes=("_dense", "_rerank"), validate="one_to_one"
     )
@@ -401,11 +458,142 @@ def validate_summary_consistency(summary):
         elif not close(r.damage_given_dense_hit, dam / dh):
             raise ValueError(f"{tag}: damage_given_dense_hit identity failed")
 
+    # §7 partition: for each (criterion, setting, k) the overall row's n must
+    # equal bridge + comparison, so the subgroups always partition the group.
+    for (crit, setting, k), grp in summary.groupby(
+        ["criterion", "setting", "k"], sort=False
+    ):
+        by_q = grp.set_index("question_type")["n"]
+        if int(by_q["overall"]) != int(by_q["bridge"]) + int(by_q["comparison"]):
+            raise ValueError(
+                f"({crit}, {setting}, {k}): overall n={int(by_q['overall'])} "
+                f"!= bridge {int(by_q['bridge'])} + comparison "
+                f"{int(by_q['comparison'])} (partition broken)."
+            )
+
+
+def _is_plain_int(value):
+    """True only for a genuine integer scalar (excludes bool, float, string)."""
+    return isinstance(value, (int, np.integer)) and not isinstance(value, bool)
+
+
+def _is_real_float(value):
+    """True only for a real float scalar (excludes bool)."""
+    return isinstance(value, (float, np.floating)) and not isinstance(value, bool)
+
+
+def validate_output_types_and_ranges(summary):
+    """§9.2 physical contract, enforced BEFORE any serialization/coercion.
+
+    - integer columns are plain integers (not bool, float, or numeric string);
+    - counts are >= 0, except `net_count` which may be negative;
+    - rate columns are finite floats in range ([0,1], `net_rate` in [-1,1]);
+    - a conditional rate is blank (NaN) exactly on a zero denominator, and a
+      finite in-range float otherwise.
+
+    This never truncates: it refuses a non-compliant frame so the writer cannot
+    coerce (e.g. `int(0.5)`) a defective value into a contract-invalid CSV.
+    """
+    non_negative_int = [c for c in INTEGER_COLUMNS if c != "net_count"]
+
+    for col in INTEGER_COLUMNS:
+        for value in summary[col].tolist():
+            if not _is_plain_int(value):
+                raise ValueError(
+                    f"integer column {col!r} has a non-integer value "
+                    f"{value!r} (type {type(value).__name__}); §9.2 requires "
+                    f"plain integers."
+                )
+    for col in non_negative_int:
+        for value in summary[col].tolist():
+            if int(value) < 0:
+                raise ValueError(
+                    f"count column {col!r} is negative ({value!r}); only "
+                    f"net_count may be negative (§9.2)."
+                )
+
+    _ATOL = 1e-9
+    always_rates = {
+        "rescue_rate": (0.0, 1.0),
+        "damage_rate": (0.0, 1.0),
+        "net_rate": (-1.0, 1.0),
+    }
+    for col, (lo, hi) in always_rates.items():
+        for value in summary[col].tolist():
+            if not _is_real_float(value) or not math.isfinite(value):
+                raise ValueError(
+                    f"rate column {col!r} must be a finite float, got "
+                    f"{value!r} (§9.2)."
+                )
+            if not (lo - _ATOL <= value <= hi + _ATOL):
+                raise ValueError(
+                    f"rate column {col!r}={value!r} is out of range "
+                    f"[{lo}, {hi}] (§9.2)."
+                )
+
+    # Conditional rates: blank iff zero denominator, else finite float in [0,1].
+    for n, dh, rgdm, dgdh, crit, setting, k, q in zip(
+        summary["n"], summary["dense_hits"],
+        summary["rescue_given_dense_miss"], summary["damage_given_dense_hit"],
+        summary["criterion"], summary["setting"],
+        summary["k"], summary["question_type"],
+    ):
+        tag = (crit, setting, k, q)
+        for col, value, zero_denominator in (
+            ("rescue_given_dense_miss", rgdm, int(n) - int(dh) == 0),
+            ("damage_given_dense_hit", dgdh, int(dh) == 0),
+        ):
+            if zero_denominator:
+                if pd.notna(value):
+                    raise ValueError(
+                        f"{tag}: {col} must be a blank cell on a zero "
+                        f"denominator, got {value!r} (§9.2)."
+                    )
+            else:
+                if not _is_real_float(value) or not math.isfinite(value):
+                    raise ValueError(
+                        f"{tag}: {col} must be a finite float, got {value!r} (§9.2)."
+                    )
+                if not (0.0 - _ATOL <= value <= 1.0 + _ATOL):
+                    raise ValueError(
+                        f"{tag}: {col}={value!r} is out of range [0, 1] (§9.2)."
+                    )
+
+
+def _expected_row_key_order():
+    """The exact §9.4 (criterion, setting, k, question_type) row order."""
+    return [
+        (criterion, setting, k, q)
+        for (criterion, setting, k) in VALID_COMBINATIONS
+        for q in QUESTION_TYPE_GROUPS
+    ]
+
+
+def validate_row_order(frame):
+    """§9.4: rows must appear in the exact deterministic key order."""
+    actual = list(
+        zip(frame.criterion, frame.setting,
+            [int(k) for k in frame.k], frame.question_type)
+    )
+    expected = _expected_row_key_order()
+    if actual != expected:
+        raise ValueError(
+            f"Row order does not match §9.4. Expected the 21-row key order "
+            f"starting {expected[:2]}, got {actual[:2]}."
+        )
+
 
 def oracle_check(summary, dense, rerank):
     """§9.5 independent oracle: net_rate must equal (rerank_mean - dense_mean)
     of the raw {criterion}@{k} column, computed via summarize() — a separate
-    code path that re-averages the accepted inputs, never the counts above."""
+    code path that re-averages the accepted inputs, never the counts above.
+
+    Another public function that accepts already-created result frames, so it
+    holds them to the same shared typed metric contract before averaging
+    anything out of them.
+    """
+    validate_typed_metric_frame(dense, "dense")
+    validate_typed_metric_frame(rerank, "rerank")
     combined = pd.concat([dense, rerank], ignore_index=True)
     overall = summarize(combined, ["method", "setting"])
     by_type = summarize(combined, ["method", "setting", "question_type"])
@@ -434,21 +622,44 @@ def oracle_check(summary, dense, rerank):
 def write_rescue_damage_csv(summary, out_path):
     """Serialize to the frozen schema: exact column order (§9.1), deterministic
     row order (§9.4), integer counts, full-precision rates (§9.2), blank cells
-    for NaN conditional rates."""
-    df = summary.copy()
-    df = df[OUTPUT_COLUMNS]
+    for NaN conditional rates.
+
+    The writer never coerces or truncates. It re-validates the final, ordered,
+    sorted frame, writes to a temporary file, re-validates the round-tripped
+    bytes, and only then atomically replaces the destination. A refusal at any
+    step therefore never creates or overwrites `out_path`.
+    """
+    df = summary[OUTPUT_COLUMNS].copy()
     df = df.assign(
         _c=df.criterion.map(_CRITERION_ORDER),
         _s=df.setting.map(_SETTING_ORDER),
         _q=df.question_type.map(_QTYPE_ORDER),
     ).sort_values(["_c", "_s", "k", "_q"]).drop(columns=["_c", "_s", "_q"])
 
-    for col in INTEGER_COLUMNS:
-        df[col] = df[col].astype("int64")
+    # Validate the exact bytes we are about to write, before touching the
+    # destination. Integer columns are already plain integers (validated
+    # upstream); no astype coercion is performed here.
+    validate_output_schema(df)
+    validate_output_types_and_ranges(df)
+    validate_row_order(df)
 
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+    tmp_path = out_path + ".tmp"
     # float_format=None -> full-precision repr; NaN -> empty field by default.
-    df.to_csv(out_path, index=False, float_format=None)
+    df.to_csv(tmp_path, index=False, float_format=None)
+    try:
+        # Round-trip guard: the persisted artifact itself must satisfy the whole
+        # contract before it may replace the destination.
+        written = pd.read_csv(tmp_path)
+        validate_output_schema(written)
+        validate_output_types_and_ranges(written)
+        validate_summary_consistency(written)
+        validate_row_order(written)
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
+    os.replace(tmp_path, out_path)
 
 
 def main(dense_path, rerank_path, out_path):
@@ -458,10 +669,12 @@ def main(dense_path, rerank_path, out_path):
     paired = build_paired_frame(dense, rerank)
     summary = summarize_rescue_damage(paired)   # <- your hand-written core
 
+    # All validation happens before any type conversion or destination mutation.
     validate_output_schema(summary)
     validate_summary_consistency(summary)
+    validate_output_types_and_ranges(summary)
     oracle_check(summary, dense, rerank)
-    print("Output passes §9.3 schema, §9.5 identities, and the independent oracle.")
+    print("Output passes §9.3 schema, §9.2 types/ranges, §9.5 identities, and the oracle.")
 
     write_rescue_damage_csv(summary, out_path)
     print(f"Wrote {out_path}")
