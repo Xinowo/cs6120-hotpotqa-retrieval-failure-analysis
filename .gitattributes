@@ -1,0 +1,8 @@
+# This repository is checked out with core.autocrlf=true. Artifacts whose
+# SHA-256 is recorded as their identity must therefore be exempted from
+# end-of-line conversion, or a fresh checkout would rewrite their bytes and
+# invalidate every recorded digest.
+#
+# The manual-review workspace is generated with LF-only bytes and is verified by
+# comparing raw bytes against a fresh regeneration, so it is locked here.
+results/annotations/** -text

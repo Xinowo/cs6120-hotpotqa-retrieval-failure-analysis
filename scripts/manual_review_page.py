@@ -1,0 +1,1046 @@
+"""
+manual_review_page.py  (the one shared manual-review page)
+
+Holds the single static `failure_review.html` that both reviewers open. The page
+is written by `scripts/build_manual_review_batch.py` into
+`results/annotations/manual_review_v1/`; the source run's own
+`failures_review.html` is left byte-for-byte untouched and is only the
+implementation starting point.
+
+Authoritative design:
+    docs/specs/2026-07-27-manual-failure-review-course-protocol.md
+        section 5   shared HTML behavior
+        section 6   notes export
+        section 9   minimal validation and acceptance
+
+The page carries **no case data**. It loads either reviewer JSON file through a
+browser file picker, so opening it by double-click works with no `fetch`, no
+local server, and no CORS setup. That is why one shared page can serve both
+reviewers without ever holding the other reviewer's cases or notes.
+
+Two boundaries the page is built around (protocol section 2):
+
+  - **Notes-first causal analysis stays human.** The page never proposes,
+    infers, defaults, suggests, or copies a failure cause into a human field. It
+    offers an optional note template as visible prose and nothing more.
+  - **The machine rank pattern and the human failure label are different
+    layers.** The ten-class `rank_pattern` is rendered as a read-only "Machine
+    rank pattern (10-class)" chip, is never editable, and is never written into
+    the human `label`. The human failure label is a separate, editable, optional
+    input that starts empty and may stay empty through open coding.
+
+The page's JavaScript is split into two scripts on purpose:
+
+  `review-contract`  pure functions with no DOM access — the reviewer-file
+                     validator, the overlap-first ordering, the notes CSV
+                     builder, and the notes-import validator. Because they touch
+                     no browser object, the acceptance tests execute these exact
+                     bytes outside a browser and check the real round trip.
+  `review-ui`        the DOM wiring that renders cards and calls the contract.
+
+Nothing in the page computes a metric, and it never mutates the source run.
+"""
+
+# The contract constants the page enforces. They are duplicated into the
+# template text below rather than interpolated, so the shipped page is a
+# fixed-byte artifact; `verify_page_contract()` asserts the two agree.
+BATCH_ID = "manual_review_v1"
+SOURCE_RUN_ID = "2026-07-17_a"
+REVIEW_CUTOFF = 5
+CASES_PER_REVIEWER = 17
+OVERLAP_COUNT = 4
+
+# The frozen notes-export header (protocol section 6), in order.
+NOTES_COLUMNS = (
+    "batch_id",
+    "run_id",
+    "example_id",
+    "retriever",
+    "review_cutoff",
+    "label",
+    "notes",
+    "annotator",
+    "annotated_at",
+)
+
+# The draft-state key prefix. The full key also carries batch_id and
+# reviewer_id, so Xin's and Jiajun's browser state cannot collide.
+STORAGE_PREFIX = "mrv-draft"
+
+# --------------------------------------------------------------------------- #
+# The two closed shapes and the frozen reviewer set (protocol section 4)
+# --------------------------------------------------------------------------- #
+#
+# These three tuples are defined here, in the module that owns the shipped page
+# bytes, and are imported by `scripts/build_manual_review_batch.py`. There is
+# therefore exactly one definition of each: the extractor and the page cannot
+# state two different shapes, and `verify_page_contract()` closes the remaining
+# gap by asserting the page's own JavaScript literals repeat these tuples
+# verbatim. Without that second half, a Python-side tightening could leave the
+# shipped page permissive — which is precisely how a reviewer file carrying a
+# foreign field, or a third reviewer identity, was accepted before.
+#
+# Both key sets are CLOSED: a conforming key set must EQUAL the frozen tuple.
+# "every frozen field is present" is a strictly weaker contract that accepts a
+# reviewer file carrying extra top-level material and a case carrying a
+# reviewer's notes, both of which contradict section 4.
+REVIEWER_FILE_FIELDS = ("batch_id", "reviewer_id", "run_id", "review_cutoff", "cases")
+
+# Every field a `cases` item carries. `label` is deliberately absent: the human
+# failure label lives only in this page's draft state and in the exported CSV,
+# never in a generated case, so no machine-authored failure cause can travel in
+# one. `notes` is absent for the same reason — section 4 freezes that the file
+# contains no notes from either reviewer.
+CASE_FIELDS = (
+    "example_id",
+    "retriever",
+    "question_type",
+    "question",
+    "gold_titles",
+    "gold_ranks",
+    "retrieved_results",
+    "rank_pattern",
+    "review_cutoff",
+    "is_overlap",
+)
+
+# Exactly two people review this batch (sections 3.2 / 3.3 / 5). A third
+# identity is a rejection even when it is a syntactically valid identifier: the
+# active identity drives isolated draft storage and the `annotator` column of the
+# exported notes, so accepting `alice` would let this page produce reviewer state
+# and a notes file outside the frozen assignment. Held in sorted order, which is
+# also `BatchSpec.reviewer_order`.
+REVIEWER_IDS = ("jiajun", "xin")
+
+
+def render_page():
+    """Return the complete static review page as text."""
+    return PAGE_HTML
+
+
+def verify_page_contract(page_html=None):
+    """Assert the shipped page states the same frozen contract as this module.
+
+    A silent drift between the Python-side constants and the page's own
+    JavaScript literals would let the extractor and the page disagree about the
+    batch identity, the cutoff, or the export header. Raises ValueError on any
+    mismatch; returns None when they agree.
+    """
+    text = PAGE_HTML if page_html is None else page_html
+    required = [
+        f'var BATCH_ID = "{BATCH_ID}";',
+        f'var RUN_ID = "{SOURCE_RUN_ID}";',
+        f"var REVIEW_CUTOFF = {REVIEW_CUTOFF};",
+        f"var CASES_PER_REVIEWER = {CASES_PER_REVIEWER};",
+        f"var OVERLAP_COUNT = {OVERLAP_COUNT};",
+        f'var STORAGE_PREFIX = "{STORAGE_PREFIX}";',
+        "var NOTES_COLUMNS = [" + ", ".join(f'"{name}"' for name in NOTES_COLUMNS) + "];",
+        # The two closed shapes and the reviewer set, so a Python-side change to
+        # any of them cannot leave the shipped page enforcing the old contract.
+        "var REVIEWER_FILE_FIELDS = ["
+        + ", ".join(f'"{name}"' for name in REVIEWER_FILE_FIELDS)
+        + "];",
+        "var CASE_FIELDS = [" + ", ".join(f'"{name}"' for name in CASE_FIELDS) + "];",
+        "var REVIEWER_IDS = [" + ", ".join(f'"{name}"' for name in REVIEWER_IDS) + "];",
+    ]
+    missing = [literal for literal in required if literal not in text]
+    if missing:
+        raise ValueError(
+            "the review page does not state the expected contract literal(s): "
+            + "; ".join(missing)
+        )
+    return None
+
+
+# --------------------------------------------------------------------------- #
+# The static page. No payload placeholder: data arrives through the file picker.
+# --------------------------------------------------------------------------- #
+
+PAGE_HTML = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manual Failure Review — manual_review_v1</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+    margin: 0; line-height: 1.4; color: #1a1a1a; background: #f5f5f5;
+  }
+  header { position: sticky; top: 0; z-index: 10; background: #fff;
+    border-bottom: 1px solid #ddd; padding: 8px 14px; }
+  header h1 { font-size: 16px; margin: 0 0 4px; }
+  .meta { font-size: 12px; color: #444; }
+  .meta code { background: #eee; padding: 1px 4px; border-radius: 3px; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+    margin-top: 6px; }
+  .toolbar label, .toolbar button { font-size: 13px; }
+  .toolbar select, .toolbar button { padding: 3px 6px; }
+  .counts { margin-left: auto; font-size: 13px; font-weight: 600; }
+  #banner { background: #ffe8e0; color: #7a2500; border: 1px solid #e0a58f;
+    padding: 8px 14px; font-size: 13px; display: none; white-space: pre-wrap; }
+  #banner.show { display: block; }
+  #status { padding: 6px 14px; font-size: 13px; color: #333; white-space: pre-wrap; }
+  main { padding: 14px; display: flex; flex-direction: column; gap: 14px; }
+  .intro { background: #fff; border: 1px solid #ddd; border-radius: 6px;
+    padding: 12px; font-size: 13px; }
+  .intro h2 { font-size: 14px; margin: 0 0 6px; }
+  .intro pre { background: #f2f2f2; padding: 8px; border-radius: 4px;
+    font-size: 12px; overflow-x: auto; }
+  .card { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 12px; }
+  .card.overlap { border-left: 4px solid #7a4fd0; }
+  .card-head { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; }
+  .seq { font-weight: 700; }
+  .badge { font-size: 12px; font-weight: 600; padding: 1px 6px; border-radius: 10px; }
+  .badge.overlap { background: #ece3fb; color: #4a2a86; }
+  .badge.private { background: #e8eef7; color: #26456f; }
+  .qtype, .retr { font-size: 12px; color: #555; }
+  .eid { font-size: 12px; color: #888; }
+  .question { margin: 8px 0; font-size: 15px; }
+  .gold-summary { font-size: 13px; margin: 6px 0; }
+  .gold-summary .hit { color: #0a7d29; }
+  .gold-summary .miss { color: #b00020; }
+  .machine { margin: 8px 0; padding: 8px; border: 1px dashed #9a9a9a;
+    border-radius: 5px; background: #f3f3f3; font-size: 13px; }
+  .machine .machine-label { font-weight: 600; color: #444; }
+  .machine .machine-value { font-family: ui-monospace, Consolas, monospace;
+    background: #e4e4e4; padding: 1px 5px; border-radius: 3px; }
+  .machine .machine-note { display: block; margin-top: 3px; font-size: 12px;
+    color: #555; }
+  .results { margin-top: 8px; border: 1px solid #e2e2e2; border-radius: 5px;
+    padding: 8px; background: #fafafa; }
+  .results h3 { font-size: 13px; margin: 0 0 4px; }
+  .row { border-top: 1px solid #eee; padding: 4px 0; font-size: 13px; }
+  .row.gold { background: #fff6d6; }
+  .row .rank { color: #666; }
+  .row .score { color: #888; font-size: 12px; }
+  .row .title { font-weight: 600; }
+  .row .text { display: none; margin-top: 3px; font-size: 12px; color: #333;
+    white-space: pre-wrap; }
+  .row .text.show { display: block; }
+  .row .toggle { cursor: pointer; color: #0645ad; font-size: 12px; }
+  .human { margin-top: 10px; padding: 8px; border: 2px solid #2f6f3f;
+    border-radius: 5px; background: #f4fbf5; display: flex;
+    flex-direction: column; gap: 6px; }
+  .human legend, .human .human-head { font-size: 12px; font-weight: 700;
+    color: #23532f; }
+  .human label { font-size: 12px; font-weight: 600; }
+  .human input, .human textarea { font-size: 13px; padding: 4px 6px; width: 100%; }
+  .human textarea { min-height: 96px; resize: vertical; }
+  .human .hint { font-size: 11px; color: #555; font-weight: 400; }
+  .empty-msg { font-size: 15px; color: #555; padding: 20px; text-align: center; }
+</style>
+</head>
+<body>
+<div id="banner"></div>
+<header>
+  <h1>Manual Failure Review — manual_review_v1</h1>
+  <div class="meta" id="file-meta">No reviewer file loaded.</div>
+  <div class="toolbar">
+    <button id="btn-open" type="button">Open my cases JSON…</button>
+    <input type="file" id="file-cases" accept=".json,application/json" style="display:none">
+    <label>show
+      <select id="f-scope" disabled>
+        <option value="all">all my cases (overlap first)</option>
+        <option value="overlap">calibration overlap only</option>
+        <option value="private">my private cases only</option>
+      </select>
+    </label>
+    <button id="btn-import" type="button" disabled>Import my notes CSV…</button>
+    <input type="file" id="file-notes" accept=".csv,text/csv" style="display:none">
+    <button id="btn-export" type="button" disabled>Export my notes CSV</button>
+    <span class="counts" id="counts"></span>
+  </div>
+</header>
+<div id="status"></div>
+<div style="padding: 14px 14px 0;">
+  <div class="intro">
+    <h2>How to use this page</h2>
+    <p>Open your own cases file — <code>xin_cases.json</code> or
+       <code>jiajun_cases.json</code>. Nothing is uploaded and no server is
+       needed; the file is read in your browser.</p>
+    <p>Review the four calibration overlap cases first and compare them with the
+       other reviewer before starting your private cases. Write a free-form,
+       evidence-based note for each case. The
+       <strong>Human failure label</strong> is optional and may stay empty
+       throughout open coding — the taxonomy is written later, from the notes.</p>
+    <p>The <strong>Machine rank pattern (10-class)</strong> shown on each card is
+       deterministic machine structure computed upstream. It is read-only
+       context: it says <em>where</em> the gold titles ranked, never
+       <em>why</em> retrieval failed, and it is never a failure label.</p>
+    <p>A useful note prompt:</p>
+<pre>Observed:
+Missing gold:
+Retrieved evidence or distractor:
+Possible reason:
+Alternative or uncertainty:</pre>
+  </div>
+</div>
+<main id="cards"></main>
+
+<script id="review-contract">
+// ------------------------------------------------------------------------- //
+// Pure contract functions. No DOM, no window, no storage access, so the
+// acceptance tests can execute these exact bytes outside a browser.
+// ------------------------------------------------------------------------- //
+var MANUAL_REVIEW_CONTRACT = (function () {
+  "use strict";
+
+  var BATCH_ID = "manual_review_v1";
+  var RUN_ID = "2026-07-17_a";
+  var REVIEW_CUTOFF = 5;
+  var CASES_PER_REVIEWER = 17;
+  var OVERLAP_COUNT = 4;
+  var STORAGE_PREFIX = "mrv-draft";
+  var NOTES_COLUMNS = ["batch_id", "run_id", "example_id", "retriever", "review_cutoff", "label", "notes", "annotator", "annotated_at"];
+
+  // The two CLOSED shapes of protocol section 4. A conforming key set must
+  // EQUAL the frozen list: requiring only that the frozen fields are present is
+  // a weaker contract that accepts a reviewer file carrying extra top-level
+  // material, and accepts a case carrying the other reviewer's `notes` — which
+  // is exactly what section 4 says the file never contains.
+  //
+  // `label` and `notes` are both deliberately absent from CASE_FIELDS: the human
+  // failure label and the notes live only in this page's draft state and in the
+  // exported CSV, never in a generated case.
+  var REVIEWER_FILE_FIELDS = ["batch_id", "reviewer_id", "run_id", "review_cutoff", "cases"];
+  var CASE_FIELDS = ["example_id", "retriever", "question_type", "question", "gold_titles", "gold_ranks", "retrieved_results", "rank_pattern", "review_cutoff", "is_overlap"];
+
+  // The frozen two-person reviewer set. A syntactically valid third identity is a
+  // rejection: the active identity drives isolated draft storage and the
+  // `annotator` column of the export, so accepting one would let this page create
+  // reviewer state and a notes file outside the frozen assignment.
+  var REVIEWER_IDS = ["jiajun", "xin"];
+
+  var IDENTIFIER_RE = /^[A-Za-z0-9_][A-Za-z0-9._-]*$/;
+
+  // One strict ISO-8601 validator, reused by export and import so a false or
+  // impossible timestamp can neither leave nor enter a notes file. The syntax
+  // and the calendar/offset range checks are the accepted failure-review
+  // page's, unchanged: date + T + time, optional fractional seconds, optional
+  // Z / +-HH:MM / +-HHMM offset.
+  var ISO_RE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-](\d{2}):?(\d{2}))?$/;
+
+  function isValidIso(value) {
+    if (typeof value !== "string") return false;
+    var m = ISO_RE.exec(value);
+    if (!m) return false;
+    var year = +m[1], month = +m[2], day = +m[3];
+    var hour = +m[4], minute = +m[5], second = +m[6];
+    if (month < 1 || month > 12) return false;
+    if (hour > 23 || minute > 59 || second > 59) return false;
+    if (m[7] !== undefined && (+m[7] > 23 || +m[8] > 59)) return false;
+    var mdays = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    var leap = (year % 4 === 0 && year % 100 !== 0) || (year % 400 === 0);
+    if (month === 2 && leap) mdays[1] = 29;
+    return day >= 1 && day <= mdays[month - 1];
+  }
+
+  function unitKey(caseObj) {
+    return caseObj.example_id + "::" + caseObj.retriever;
+  }
+
+  // The draft-state key carries both batch_id and reviewer_id, so two reviewers
+  // using the same browser profile cannot share or overwrite draft state.
+  function storageKey(batchId, reviewerId) {
+    return STORAGE_PREFIX + "::" + batchId + "::" + reviewerId;
+  }
+
+  function isPlainObject(value) {
+    return !!value && typeof value === "object" && !Array.isArray(value);
+  }
+
+  function isExactInteger(value) {
+    return typeof value === "number" && isFinite(value) && Math.floor(value) === value;
+  }
+
+  // Closed-shape comparison: the object's own key set must equal `expected`.
+  // Returns null when it does, otherwise a phrase naming what is wrong. Missing
+  // fields are reported first, because a truncated object is the more basic
+  // defect; an unexpected field is reported by name so a reviewer can see which
+  // foreign material was rejected.
+  function keySetError(obj, expected) {
+    var allowed = Object.create(null), i, keys = Object.keys(obj);
+    for (i = 0; i < expected.length; i++) allowed[expected[i]] = true;
+    var missing = [], unexpected = [];
+    for (i = 0; i < expected.length; i++) {
+      if (!Object.prototype.hasOwnProperty.call(obj, expected[i])) missing.push(expected[i]);
+    }
+    for (i = 0; i < keys.length; i++) {
+      if (!allowed[keys[i]]) unexpected.push(keys[i]);
+    }
+    if (missing.length) return "is missing " + missing.join(", ");
+    if (unexpected.length)
+      return "carries unexpected field(s) " + unexpected.join(", ") + "; the shape is closed";
+    return null;
+  }
+
+  // Independent re-validation of a loaded reviewer file. The extractor already
+  // checks these, but a reviewer opens a file that arrived by ordinary file
+  // exchange, so the page repeats the checks rather than trusting the bytes.
+  function validateReviewerFile(payload) {
+    if (!isPlainObject(payload)) return "the file must contain one JSON object";
+    var fileShape = keySetError(payload, REVIEWER_FILE_FIELDS);
+    if (fileShape) return "the reviewer file " + fileShape;
+    if (payload.batch_id !== BATCH_ID)
+      return "batch_id must be " + BATCH_ID + ", got " + JSON.stringify(payload.batch_id);
+    if (payload.run_id !== RUN_ID)
+      return "run_id must be " + RUN_ID + ", got " + JSON.stringify(payload.run_id);
+    // The frozen reviewer set, not merely identifier syntax: `alice` is a valid
+    // identifier and would still be a reviewer this batch does not have.
+    if (typeof payload.reviewer_id !== "string" || !IDENTIFIER_RE.test(payload.reviewer_id)
+        || REVIEWER_IDS.indexOf(payload.reviewer_id) < 0)
+      return "reviewer_id must be one of " + REVIEWER_IDS.join(", ") + ", got "
+             + JSON.stringify(payload.reviewer_id);
+    if (payload.review_cutoff !== REVIEW_CUTOFF)
+      return "file-level review_cutoff must be the integer " + REVIEW_CUTOFF;
+    if (!Array.isArray(payload.cases))
+      return "cases must be an array";
+    if (payload.cases.length !== CASES_PER_REVIEWER)
+      return "expected " + CASES_PER_REVIEWER + " cases, got " + payload.cases.length;
+
+    var seen = Object.create(null), overlap = 0;
+    for (var i = 0; i < payload.cases.length; i++) {
+      var c = payload.cases[i], where = "case " + (i + 1);
+      if (!isPlainObject(c)) return where + " is not an object";
+      // A generated case must never carry a human field: that is where a
+      // machine-authored failure cause would appear. Named before the general
+      // closed-shape check so this specific defect keeps its specific diagnostic.
+      if (Object.prototype.hasOwnProperty.call(c, "label"))
+        return where + " carries a label field, which a generated case must not";
+      // Closed case shape: any other foreign field — a reviewer's `notes`
+      // included — is a rejection too, not just a missing frozen field.
+      var caseShape = keySetError(c, CASE_FIELDS);
+      if (caseShape) return where + " " + caseShape;
+      if (typeof c.example_id !== "string" || !IDENTIFIER_RE.test(c.example_id))
+        return where + " has an invalid example_id";
+      if (typeof c.retriever !== "string" || !IDENTIFIER_RE.test(c.retriever))
+        return where + " has an invalid retriever";
+      // Per-case review_cutoff: the JSON integer 5. A boolean, string, or float
+      // is a rejection -- `true` must not read as 1 and "5" must not read as 5.
+      if (typeof c.review_cutoff === "boolean" || !isExactInteger(c.review_cutoff)
+          || c.review_cutoff !== REVIEW_CUTOFF)
+        return where + " must carry review_cutoff as the integer " + REVIEW_CUTOFF;
+      if (typeof c.is_overlap !== "boolean")
+        return where + " must carry is_overlap as a boolean";
+      if (typeof c.rank_pattern !== "string" || c.rank_pattern === "")
+        return where + " must carry a non-empty rank_pattern";
+      if (!Array.isArray(c.retrieved_results))
+        return where + " must carry retrieved_results as an array";
+      if (!Array.isArray(c.gold_titles) || c.gold_titles.length === 0)
+        return where + " must carry a non-empty gold_titles array";
+      if (!isPlainObject(c.gold_ranks))
+        return where + " must carry gold_ranks as an object";
+      var key = unitKey(c);
+      if (seen[key]) return where + " duplicates an earlier unit key";
+      seen[key] = true;
+      if (c.is_overlap) overlap += 1;
+    }
+    if (overlap !== OVERLAP_COUNT)
+      return "expected " + OVERLAP_COUNT + " overlap cases, got " + overlap;
+    return null;
+  }
+
+  // Overlap-first display order for the calibration step. Stable within each
+  // group, so the two reviewers see the same units in the same order.
+  function orderCasesForReview(cases) {
+    var overlap = [], priv = [];
+    for (var i = 0; i < cases.length; i++) {
+      (cases[i].is_overlap ? overlap : priv).push(cases[i]);
+    }
+    return overlap.concat(priv);
+  }
+
+  function csvField(value) {
+    var s = (value === null || value === undefined) ? "" : String(value);
+    if (/[",\r\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  }
+
+  // One row per displayed unit, always all of them: a reviewer exports the whole
+  // assignment, and an empty note simply means that unit is not complete yet.
+  // `annotator` is the loaded file's reviewer_id, so an export can never carry
+  // the other reviewer's identity.
+  function buildNotesRows(payload, drafts, exportedAt) {
+    var ordered = orderCasesForReview(payload.cases);
+    var rows = [];
+    for (var i = 0; i < ordered.length; i++) {
+      var c = ordered[i];
+      var draft = (drafts && drafts[unitKey(c)]) || {};
+      var label = typeof draft.label === "string" ? draft.label : "";
+      var notes = typeof draft.notes === "string" ? draft.notes : "";
+      var at = isValidIso(draft.annotated_at) ? draft.annotated_at : exportedAt;
+      rows.push({
+        batch_id: payload.batch_id,
+        run_id: payload.run_id,
+        example_id: c.example_id,
+        retriever: c.retriever,
+        review_cutoff: c.review_cutoff,
+        label: label,
+        notes: notes,
+        annotator: payload.reviewer_id,
+        annotated_at: at
+      });
+    }
+    return rows;
+  }
+
+  function buildNotesCsv(payload, drafts, exportedAt) {
+    var rows = buildNotesRows(payload, drafts, exportedAt);
+    var lines = [NOTES_COLUMNS.join(",")];
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i], fields = [];
+      for (var c = 0; c < NOTES_COLUMNS.length; c++) {
+        fields.push(csvField(row[NOTES_COLUMNS[c]]));
+      }
+      lines.push(fields.join(","));
+    }
+    return lines.join("\r\n") + "\r\n";
+  }
+
+  function notesFileName(reviewerId) { return reviewerId + "_notes.csv"; }
+
+  // Quote-aware RFC-4180 parse, carried over from the accepted review page.
+  function parseCsv(text) {
+    if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+    var rows = [], row = [], field = "", i = 0, inQuotes = false, n = text.length;
+    while (i < n) {
+      var ch = text.charAt(i);
+      if (inQuotes) {
+        if (ch === '"') {
+          if (text.charAt(i + 1) === '"') { field += '"'; i += 2; continue; }
+          inQuotes = false; i += 1; continue;
+        }
+        field += ch; i += 1; continue;
+      }
+      if (ch === '"') { inQuotes = true; i += 1; continue; }
+      if (ch === ",") { row.push(field); field = ""; i += 1; continue; }
+      if (ch === "\r") {
+        if (text.charAt(i + 1) === "\n") i += 1;
+        row.push(field); field = ""; rows.push(row); row = []; i += 1; continue;
+      }
+      if (ch === "\n") { row.push(field); field = ""; rows.push(row); row = []; i += 1; continue; }
+      field += ch; i += 1;
+    }
+    if (inQuotes) throw new Error("unterminated quoted field");
+    row.push(field); rows.push(row);
+    if (rows.length && rows[rows.length - 1].length === 1 && rows[rows.length - 1][0] === "") {
+      rows.pop();
+    }
+    return rows;
+  }
+
+  // Re-import of the ACTIVE reviewer's own exported notes file. A file whose
+  // batch_id or annotator does not match the loaded reviewer file is rejected
+  // whole -- the reviewers exchange files by hand, so this is the check that
+  // keeps one reviewer's notes out of the other's page.
+  function validateNotesImport(payload, text) {
+    var rows;
+    try { rows = parseCsv(text); }
+    catch (e) { return { ok: false, error: "could not parse the CSV: " + e.message }; }
+    if (!rows.length) return { ok: false, error: "the file is empty" };
+
+    var header = rows[0];
+    if (header.length !== NOTES_COLUMNS.length)
+      return { ok: false, error: "expected " + NOTES_COLUMNS.length + " columns, got " + header.length };
+    for (var c = 0; c < NOTES_COLUMNS.length; c++) {
+      if (header[c] !== NOTES_COLUMNS[c])
+        return { ok: false, error: "column " + (c + 1) + " must be " + NOTES_COLUMNS[c] + ", got " + JSON.stringify(header[c]) };
+    }
+
+    var expected = Object.create(null), expectedCount = 0;
+    for (var i = 0; i < payload.cases.length; i++) {
+      expected[unitKey(payload.cases[i])] = payload.cases[i];
+      expectedCount += 1;
+    }
+
+    var drafts = Object.create(null), seen = 0;
+    for (var r = 1; r < rows.length; r++) {
+      var row = rows[r], line = r + 1;
+      if (row.length !== NOTES_COLUMNS.length)
+        return { ok: false, error: "line " + line + ": expected " + NOTES_COLUMNS.length + " fields, got " + row.length };
+      var get = function (name) { return row[NOTES_COLUMNS.indexOf(name)]; };
+      if (get("batch_id") !== payload.batch_id)
+        return { ok: false, error: "line " + line + ": batch_id " + JSON.stringify(get("batch_id")) + " does not match this reviewer file (" + payload.batch_id + ")" };
+      if (get("annotator") !== payload.reviewer_id)
+        return { ok: false, error: "line " + line + ": annotator " + JSON.stringify(get("annotator")) + " is not the active reviewer (" + payload.reviewer_id + "); importing another reviewer's notes is not allowed" };
+      if (get("run_id") !== payload.run_id)
+        return { ok: false, error: "line " + line + ": run_id " + JSON.stringify(get("run_id")) + " does not match this reviewer file" };
+      if (get("review_cutoff") !== String(REVIEW_CUTOFF))
+        return { ok: false, error: "line " + line + ": review_cutoff must be " + REVIEW_CUTOFF };
+      var key = get("example_id") + "::" + get("retriever");
+      if (!expected[key])
+        return { ok: false, error: "line " + line + ": (" + get("example_id") + ", " + get("retriever") + ") is not one of your cases" };
+      if (drafts[key])
+        return { ok: false, error: "line " + line + ": duplicate row for (" + get("example_id") + ", " + get("retriever") + ")" };
+      if (!isValidIso(get("annotated_at")))
+        return { ok: false, error: "line " + line + ": annotated_at is not a valid ISO 8601 timestamp" };
+      drafts[key] = {
+        label: get("label"),
+        notes: get("notes"),
+        annotated_at: get("annotated_at")
+      };
+      seen += 1;
+    }
+    if (seen !== expectedCount)
+      return { ok: false, error: "expected " + expectedCount + " data rows, got " + seen };
+    return { ok: true, drafts: drafts };
+  }
+
+  return {
+    BATCH_ID: BATCH_ID,
+    RUN_ID: RUN_ID,
+    REVIEW_CUTOFF: REVIEW_CUTOFF,
+    CASES_PER_REVIEWER: CASES_PER_REVIEWER,
+    OVERLAP_COUNT: OVERLAP_COUNT,
+    STORAGE_PREFIX: STORAGE_PREFIX,
+    NOTES_COLUMNS: NOTES_COLUMNS,
+    CASE_FIELDS: CASE_FIELDS,
+    REVIEWER_FILE_FIELDS: REVIEWER_FILE_FIELDS,
+    REVIEWER_IDS: REVIEWER_IDS,
+    isValidIso: isValidIso,
+    keySetError: keySetError,
+    unitKey: unitKey,
+    storageKey: storageKey,
+    validateReviewerFile: validateReviewerFile,
+    orderCasesForReview: orderCasesForReview,
+    csvField: csvField,
+    buildNotesRows: buildNotesRows,
+    buildNotesCsv: buildNotesCsv,
+    notesFileName: notesFileName,
+    parseCsv: parseCsv,
+    validateNotesImport: validateNotesImport
+  };
+})();
+</script>
+
+<script id="review-ui">
+(function () {
+  "use strict";
+
+  var C = MANUAL_REVIEW_CONTRACT;
+
+  var bannerEl = document.getElementById("banner");
+  var statusEl = document.getElementById("status");
+  var metaEl = document.getElementById("file-meta");
+  var cardsEl = document.getElementById("cards");
+  var countsEl = document.getElementById("counts");
+  var btnOpen = document.getElementById("btn-open");
+  var fileCases = document.getElementById("file-cases");
+  var btnImport = document.getElementById("btn-import");
+  var fileNotes = document.getElementById("file-notes");
+  var btnExport = document.getElementById("btn-export");
+  var fScope = document.getElementById("f-scope");
+
+  var payload = null;     // the loaded reviewer file
+  var drafts = {};        // unitKey -> { label, notes, annotated_at }
+  var cardRefs = [];      // { caseObj, el, key, labelInput, notesInput }
+
+  function setStatus(msg) { statusEl.textContent = msg || ""; }
+  function showBanner(msg) { bannerEl.textContent = msg; bannerEl.classList.add("show"); }
+
+  // ---------------------------------------------------------------------- //
+  // Draft state, isolated per batch AND per reviewer.
+  // ---------------------------------------------------------------------- //
+  var storage = (function () {
+    var backend = null, degraded = false, mem = {};
+    try {
+      var probe = "__mrv_probe__" + Math.random().toString(36).slice(2) + "_" + Date.now();
+      window.localStorage.setItem(probe, "1");
+      window.localStorage.removeItem(probe);
+      backend = window.localStorage;
+    } catch (e) { backend = null; degraded = true; }
+    return {
+      degraded: function () { return degraded; },
+      _fail: function () { degraded = true; backend = null; },
+      getItem: function (k) {
+        if (backend) { try { return backend.getItem(k); } catch (e) { this._fail(); } }
+        return (k in mem) ? mem[k] : null;
+      },
+      setItem: function (k, v) {
+        mem[k] = v;
+        if (backend) { try { backend.setItem(k, v); return true; } catch (e) { this._fail(); return false; } }
+        return false;
+      }
+    };
+  })();
+
+  function degradedWarn() {
+    showBanner("Storage is unavailable, so your notes live only in memory: "
+      + "refreshing or closing this tab will lose them. Export the CSV to save your work.");
+  }
+  if (storage.degraded()) { degradedWarn(); }
+
+  function draftKey() { return C.storageKey(payload.batch_id, payload.reviewer_id); }
+
+  function loadDrafts() {
+    var raw = storage.getItem(draftKey());
+    if (raw == null) return {};
+    try {
+      var parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)
+          || parsed.schema !== 1 || !parsed.drafts
+          || typeof parsed.drafts !== "object" || Array.isArray(parsed.drafts)) {
+        showBanner("Saved draft notes for this reviewer were unreadable and have been "
+          + "ignored. Starting from an empty set.");
+        return {};
+      }
+      // Never accept a draft blob whose reviewer is not the active one: draft
+      // state is per reviewer, and a mismatched blob would show one reviewer
+      // another's notes.
+      if (parsed.reviewer_id !== payload.reviewer_id
+          || parsed.batch_id !== payload.batch_id) {
+        showBanner("Saved draft notes belong to a different reviewer or batch and "
+          + "have been ignored.");
+        return {};
+      }
+      return parsed.drafts;
+    } catch (e) {
+      showBanner("Saved draft notes for this reviewer were unreadable and have been "
+        + "ignored. Starting from an empty set.");
+      return {};
+    }
+  }
+
+  function persist() {
+    var blob = JSON.stringify({
+      schema: 1,
+      batch_id: payload.batch_id,
+      reviewer_id: payload.reviewer_id,
+      drafts: drafts
+    });
+    var ok = storage.setItem(draftKey(), blob);
+    if (!ok || storage.degraded()) { degradedWarn(); }
+  }
+
+  // ---------------------------------------------------------------------- //
+  // Rendering
+  // ---------------------------------------------------------------------- //
+  function renderMeta() {
+    metaEl.textContent = "";
+    var parts = [
+      ["reviewer", payload.reviewer_id],
+      ["batch_id", payload.batch_id],
+      ["run_id", payload.run_id],
+      ["review_cutoff", payload.review_cutoff],
+      ["cases", payload.cases.length]
+    ];
+    parts.forEach(function (p, i) {
+      if (i > 0) metaEl.appendChild(document.createTextNode("  ·  "));
+      metaEl.appendChild(document.createTextNode(p[0] + ": "));
+      var code = document.createElement("code");
+      code.textContent = String(p[1]);
+      metaEl.appendChild(code);
+    });
+  }
+
+  function goldSummary(caseObj) {
+    var wrap = document.createElement("div");
+    wrap.className = "gold-summary";
+    wrap.appendChild(document.createTextNode("gold: "));
+    caseObj.gold_titles.forEach(function (title, i) {
+      if (i > 0) wrap.appendChild(document.createTextNode("; "));
+      wrap.appendChild(document.createTextNode(title + " — "));
+      var rank = caseObj.gold_ranks[title];
+      var span = document.createElement("span");
+      if (rank === null || rank === undefined) {
+        span.className = "miss";
+        span.textContent = "not in top 50";
+      } else if (rank <= caseObj.review_cutoff) {
+        span.className = "hit";
+        span.textContent = "rank " + rank;
+      } else {
+        span.className = "miss";
+        span.textContent = "rank " + rank + " (below " + caseObj.review_cutoff + ")";
+      }
+      wrap.appendChild(span);
+    });
+    return wrap;
+  }
+
+  // The machine layer: read-only, visually distinct, never an input, and never
+  // a source for the human label.
+  function machineContext(caseObj) {
+    var box = document.createElement("div");
+    box.className = "machine";
+    var name = document.createElement("span");
+    name.className = "machine-label";
+    name.textContent = "Machine rank pattern (10-class): ";
+    var value = document.createElement("span");
+    value.className = "machine-value";
+    value.textContent = caseObj.rank_pattern;
+    var note = document.createElement("span");
+    note.className = "machine-note";
+    note.textContent = "Read-only machine structure: where the gold titles ranked. "
+      + "It is not a failure cause and is not your label.";
+    box.appendChild(name);
+    box.appendChild(value);
+    box.appendChild(note);
+    return box;
+  }
+
+  function resultsList(caseObj) {
+    var box = document.createElement("div");
+    box.className = "results";
+    var head = document.createElement("h3");
+    head.textContent = caseObj.retriever + " top " + caseObj.retrieved_results.length;
+    box.appendChild(head);
+
+    var goldSet = Object.create(null);
+    caseObj.gold_titles.forEach(function (t) { goldSet[t] = true; });
+
+    caseObj.retrieved_results.forEach(function (item) {
+      var row = document.createElement("div");
+      row.className = "row" + (goldSet[item.title] ? " gold" : "");
+      var line = document.createElement("div");
+      var rank = document.createElement("span");
+      rank.className = "rank"; rank.textContent = "#" + item.rank + " ";
+      var title = document.createElement("span");
+      title.className = "title"; title.textContent = item.title;
+      var score = document.createElement("span");
+      score.className = "score";
+      score.textContent = "  (" + Number(item.score).toFixed(4) + ")";
+      line.appendChild(rank); line.appendChild(title); line.appendChild(score);
+      if (item.text) {
+        var toggle = document.createElement("span");
+        toggle.className = "toggle"; toggle.textContent = "  [text]";
+        var textDiv = document.createElement("div");
+        textDiv.className = "text"; textDiv.textContent = item.text;
+        toggle.addEventListener("click", function () { textDiv.classList.toggle("show"); });
+        line.appendChild(toggle);
+        row.appendChild(line);
+        row.appendChild(textDiv);
+      } else {
+        row.appendChild(line);
+      }
+      box.appendChild(row);
+    });
+    return box;
+  }
+
+  function renderCard(caseObj, sequence) {
+    var card = document.createElement("div");
+    card.className = "card" + (caseObj.is_overlap ? " overlap" : "");
+    var key = C.unitKey(caseObj);
+
+    var head = document.createElement("div");
+    head.className = "card-head";
+    var seq = document.createElement("span");
+    seq.className = "seq";
+    seq.textContent = sequence + " / " + payload.cases.length;
+    var badge = document.createElement("span");
+    badge.className = "badge " + (caseObj.is_overlap ? "overlap" : "private");
+    badge.textContent = caseObj.is_overlap ? "calibration overlap (both reviewers)"
+                                           : "my private case";
+    var retr = document.createElement("span");
+    retr.className = "retr"; retr.textContent = "retriever: " + caseObj.retriever;
+    var qtype = document.createElement("span");
+    qtype.className = "qtype"; qtype.textContent = "type: " + caseObj.question_type;
+    var eid = document.createElement("span");
+    eid.className = "eid"; eid.textContent = caseObj.example_id;
+    head.appendChild(seq); head.appendChild(badge);
+    head.appendChild(retr); head.appendChild(qtype); head.appendChild(eid);
+    card.appendChild(head);
+
+    var question = document.createElement("div");
+    question.className = "question"; question.textContent = caseObj.question;
+    card.appendChild(question);
+
+    card.appendChild(goldSummary(caseObj));
+    card.appendChild(machineContext(caseObj));
+    card.appendChild(resultsList(caseObj));
+
+    // The human layer: a note textarea plus a separate, optional label input.
+    // Both start from the reviewer's own draft state only, and the label starts
+    // empty -- no machine value is ever placed in it.
+    var human = document.createElement("div");
+    human.className = "human";
+    var humanHead = document.createElement("div");
+    humanHead.className = "human-head";
+    humanHead.textContent = "Your review (human analysis)";
+    human.appendChild(humanHead);
+
+    var notesLabel = document.createElement("label");
+    notesLabel.textContent = "Evidence-based note";
+    var notesHint = document.createElement("span");
+    notesHint.className = "hint";
+    notesHint.textContent = "  — what you observed, which gold is missing, what was "
+      + "retrieved instead, a possible reason, and your uncertainty.";
+    notesLabel.appendChild(notesHint);
+    var notesInput = document.createElement("textarea");
+    notesInput.setAttribute("aria-label", "Evidence-based note");
+
+    var labelLabel = document.createElement("label");
+    labelLabel.textContent = "Human failure label (optional)";
+    var labelHint = document.createElement("span");
+    labelHint.className = "hint";
+    labelHint.textContent = "  — may stay empty during open coding; this is yours to "
+      + "write, and it is not the machine rank pattern above.";
+    labelLabel.appendChild(labelHint);
+    var labelInput = document.createElement("input");
+    labelInput.type = "text";
+    labelInput.autocomplete = "off";
+    labelInput.setAttribute("aria-label", "Human failure label (optional)");
+
+    var draft = drafts[key];
+    notesInput.value = (draft && typeof draft.notes === "string") ? draft.notes : "";
+    labelInput.value = (draft && typeof draft.label === "string") ? draft.label : "";
+
+    function onEdit() {
+      var notesVal = notesInput.value;
+      var labelVal = labelInput.value;
+      if (notesVal === "" && labelVal === "") {
+        if (drafts[key]) { delete drafts[key]; persist(); }
+        updateCounts();
+        return;
+      }
+      drafts[key] = {
+        label: labelVal,
+        notes: notesVal,
+        annotated_at: new Date().toISOString()
+      };
+      persist();
+      updateCounts();
+    }
+    notesInput.addEventListener("input", onEdit);
+    labelInput.addEventListener("input", onEdit);
+
+    human.appendChild(notesLabel); human.appendChild(notesInput);
+    human.appendChild(labelLabel); human.appendChild(labelInput);
+    card.appendChild(human);
+
+    cardRefs.push({ caseObj: caseObj, el: card, key: key,
+                    labelInput: labelInput, notesInput: notesInput });
+    return card;
+  }
+
+  function updateCounts() {
+    var withNotes = 0;
+    cardRefs.forEach(function (ref) {
+      var draft = drafts[ref.key];
+      if (draft && String(draft.notes || "").trim() !== "") withNotes += 1;
+    });
+    countsEl.textContent = "notes written " + withNotes + " / " + cardRefs.length;
+  }
+
+  function applyScope() {
+    var scope = fScope.value;
+    cardRefs.forEach(function (ref) {
+      var show = scope === "all"
+        || (scope === "overlap" && ref.caseObj.is_overlap)
+        || (scope === "private" && !ref.caseObj.is_overlap);
+      ref.el.style.display = show ? "" : "none";
+    });
+  }
+
+  function renderAll() {
+    cardsEl.textContent = "";
+    cardRefs = [];
+    var ordered = C.orderCasesForReview(payload.cases);
+    ordered.forEach(function (caseObj, index) {
+      cardsEl.appendChild(renderCard(caseObj, index + 1));
+    });
+    applyScope();
+    updateCounts();
+  }
+
+  // ---------------------------------------------------------------------- //
+  // Loading, export, import
+  // ---------------------------------------------------------------------- //
+  function loadReviewerFile(text) {
+    var parsed;
+    try { parsed = JSON.parse(text); }
+    catch (e) { setStatus("Could not read that file: " + e.message); return; }
+    var error = C.validateReviewerFile(parsed);
+    if (error) { setStatus("That file is not a valid reviewer case file: " + error); return; }
+
+    payload = parsed;
+    drafts = loadDrafts();
+    renderMeta();
+    renderAll();
+    fScope.disabled = false;
+    btnExport.disabled = false;
+    btnImport.disabled = false;
+    setStatus("Loaded " + payload.cases.length + " cases for " + payload.reviewer_id
+      + ". The " + C.OVERLAP_COUNT + " calibration overlap cases are shown first; "
+      + "review and compare those before your private cases.");
+  }
+
+  function exportNotes() {
+    var text = C.buildNotesCsv(payload, drafts, new Date().toISOString());
+    var blob = new Blob([text], { type: "text/csv;charset=utf-8" });
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement("a");
+    link.href = url;
+    link.download = C.notesFileName(payload.reviewer_id);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 0);
+    var blank = 0;
+    cardRefs.forEach(function (ref) {
+      var draft = drafts[ref.key];
+      if (!draft || String(draft.notes || "").trim() === "") blank += 1;
+    });
+    setStatus("Exported " + payload.cases.length + " rows to "
+      + C.notesFileName(payload.reviewer_id)
+      + (blank ? ("; " + blank + " row(s) still have an empty note.") : "."));
+  }
+
+  function importNotes(text) {
+    var result = C.validateNotesImport(payload, text);
+    if (!result.ok) {
+      setStatus("Import rejected (nothing changed): " + result.error);
+      return;
+    }
+    if (!window.confirm("Import " + payload.cases.length
+        + " row(s)? Imported notes and labels replace what is on this page.")) {
+      setStatus("Import cancelled.");
+      return;
+    }
+    drafts = {};
+    Object.keys(result.drafts).forEach(function (key) {
+      var draft = result.drafts[key];
+      // An all-empty row carries no review content, so it restores no draft.
+      if (draft.label === "" && draft.notes === "") return;
+      drafts[key] = draft;
+    });
+    persist();
+    cardRefs.forEach(function (ref) {
+      var draft = drafts[ref.key];
+      ref.notesInput.value = (draft && draft.notes) || "";
+      ref.labelInput.value = (draft && draft.label) || "";
+    });
+    updateCounts();
+    setStatus("Imported " + payload.cases.length + " row(s); restored content for "
+      + Object.keys(drafts).length + " unit(s).");
+  }
+
+  function readChosenFile(input, handler) {
+    var file = input.files && input.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      try { handler(String(reader.result)); }
+      finally { input.value = ""; }
+    };
+    reader.readAsText(file, "utf-8");
+  }
+
+  btnOpen.addEventListener("click", function () { fileCases.click(); });
+  fileCases.addEventListener("change", function () {
+    readChosenFile(fileCases, loadReviewerFile);
+  });
+  btnImport.addEventListener("click", function () { fileNotes.click(); });
+  fileNotes.addEventListener("change", function () {
+    readChosenFile(fileNotes, importNotes);
+  });
+  btnExport.addEventListener("click", exportNotes);
+  fScope.addEventListener("change", applyScope);
+})();
+</script>
+</body>
+</html>
+"""

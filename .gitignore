@@ -12,9 +12,19 @@ docs/specs/*.zh.md
 # Failure-review run directories (large intermediate products: details.jsonl
 # carries full paragraph text, plus generated failures_review.html). Code
 # version is already traceable via config.json's git_commit, so runs are not
-# committed. The formal results/dense_results.csv and the hand-annotated
-# results/annotations/ stay tracked -- only results/runs/ is ignored.
+# committed. The formal results/dense_results.csv stays tracked.
 results/runs/
+
+# Per-reviewer manual-review case files. These embed the full top-50 paragraph
+# text for every assigned unit, which is ~90% of their bytes and ~1.2 MB total.
+# The review protocol makes Git retention optional ("ordinary file exchange is
+# sufficient for review"), and these are the delivery artifacts handed to the
+# other reviewer directly, so they are not committed. The shared page and the
+# small assignment table in the same directory DO stay tracked, and both case
+# files regenerate byte-for-byte from the read-only run via
+# scripts/build_manual_review_batch.py.
+results/annotations/*/xin_cases.json
+results/annotations/*/jiajun_cases.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
