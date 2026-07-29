@@ -81,6 +81,8 @@ from scripts import build_failure_report as bfr
 # second definition here is exactly how they would drift apart.
 from scripts.manual_review_page import (
     CASE_FIELDS,
+    COMPARISON_FIELDS,
+    GOLD_PASSAGE_FIELDS,
     REVIEWER_FILE_FIELDS,
     REVIEWER_IDS,
     render_page,
@@ -581,19 +583,27 @@ def validate_review_cutoff(cases, spec):
 # Case construction (protocol section 4)
 # --------------------------------------------------------------------------- #
 
-def build_case(record, retriever, rank_pattern, is_overlap, spec):
-    """Build one `cases` item, carrying only the material needed for review.
+def build_passage_text_index(records):
+    """Recover title -> passage text from the read-only pooled run.
 
-    Field order is fixed by CASE_FIELDS so that an overlap unit serializes
-    byte-identically in both reviewer files.
+    The pooled corpus itself uses first occurrence by title, so this index does
+    the same. The accepted formal run has no selected-title text conflicts; the
+    deterministic first-occurrence rule also keeps synthetic contract fixtures
+    independent of incidental rank-specific placeholder text.
     """
+    passages = {}
+    for record in records:
+        for sub in record["retrievers"].values():
+            for item in sub["top_k"]:
+                title, text = item["title"], item["text"]
+                passages.setdefault(title, text)
+    return passages
+
+
+def _retriever_payload(record, retriever, rank_pattern):
     sub = record["retrievers"][retriever]
-    case = {
-        "example_id": record["example_id"],
+    return {
         "retriever": retriever,
-        "question_type": record["question_type"],
-        "question": record["question"],
-        "gold_titles": list(record["gold_titles"]),
         "gold_ranks": {
             title: sub["gold_ranks"][title] for title in record["gold_titles"]
         },
@@ -601,6 +611,51 @@ def build_case(record, retriever, rank_pattern, is_overlap, spec):
             {field: item[field] for field in RESULT_FIELDS} for item in sub["top_k"]
         ],
         "rank_pattern": rank_pattern,
+    }
+
+
+def build_case(record, retriever, rank_pattern, comparison_pattern, is_overlap,
+               passage_texts, spec):
+    """Build one `cases` item, carrying only the material needed for review.
+
+    Field order is fixed by CASE_FIELDS so that an overlap unit serializes
+    byte-identically in both reviewer files.
+    """
+    comparison_retrievers = [
+        name for name in record["retrievers"] if name != retriever
+    ]
+    if len(comparison_retrievers) != 1:
+        raise BatchError(
+            f"case {(record['example_id'], retriever)} needs exactly one other "
+            f"retriever for comparison, got {comparison_retrievers!r}"
+        )
+    comparison_retriever = comparison_retrievers[0]
+    target = _retriever_payload(record, retriever, rank_pattern)
+    comparison = _retriever_payload(
+        record, comparison_retriever, comparison_pattern
+    )
+    missing_passages = [
+        title for title in record["gold_titles"] if title not in passage_texts
+    ]
+    if missing_passages:
+        raise BatchError(
+            f"case {(record['example_id'], retriever)} cannot display gold passage "
+            f"text for {missing_passages!r} from the read-only source run"
+        )
+    case = {
+        "example_id": record["example_id"],
+        "retriever": retriever,
+        "question_type": record["question_type"],
+        "question": record["question"],
+        "gold_titles": list(record["gold_titles"]),
+        "gold_ranks": target["gold_ranks"],
+        "gold_passages": [
+            {"title": title, "text": passage_texts[title]}
+            for title in record["gold_titles"]
+        ],
+        "retrieved_results": target["retrieved_results"],
+        "rank_pattern": rank_pattern,
+        "comparison": comparison,
         "review_cutoff": spec.review_cutoff,
         "is_overlap": is_overlap,
     }
@@ -611,7 +666,7 @@ def build_case(record, retriever, rank_pattern, is_overlap, spec):
     return case
 
 
-def build_cases(records, keys, overlap_keys, patterns, spec):
+def build_cases(records, keys, overlap_keys, patterns, passage_texts, spec):
     """Build every unique case in canonical order, keyed for reuse per reviewer."""
     by_example = {record["example_id"]: record for record in records}
     overlap = set(overlap_keys)
@@ -627,8 +682,22 @@ def build_cases(records, keys, overlap_keys, patterns, spec):
             raise BatchError(
                 f"selected unit {key} has no {retriever!r} record in the source run"
             )
+        comparison_retrievers = [
+            name for name in record["retrievers"] if name != retriever
+        ]
+        if len(comparison_retrievers) != 1:
+            raise BatchError(
+                f"case {key} needs exactly one other retriever for comparison"
+            )
+        comparison_key = (example_id, comparison_retrievers[0])
         cases[key] = build_case(
-            record, retriever, bind_rank_pattern(key, patterns), key in overlap, spec
+            record,
+            retriever,
+            bind_rank_pattern(key, patterns),
+            bind_rank_pattern(comparison_key, patterns),
+            key in overlap,
+            passage_texts,
+            spec,
         )
     return cases
 
@@ -953,6 +1022,62 @@ def validate_closed_shapes(reviewer_files):
             problem = _key_set_error(case, CASE_FIELDS)
             if problem is not None:
                 raise BatchError(f"case {key} {problem}")
+            for index, passage in enumerate(case["gold_passages"], start=1):
+                if not isinstance(passage, dict):
+                    raise BatchError(f"case {key}: gold passage {index} is not an object")
+                problem = _key_set_error(passage, GOLD_PASSAGE_FIELDS)
+                if problem is not None:
+                    raise BatchError(f"case {key}: gold passage {index} {problem}")
+            comparison = case["comparison"]
+            if not isinstance(comparison, dict):
+                raise BatchError(f"case {key}: comparison is not an object")
+            problem = _key_set_error(comparison, COMPARISON_FIELDS)
+            if problem is not None:
+                raise BatchError(f"case {key}: comparison {problem}")
+
+
+def validate_review_context_binding(reviewer_files, records, patterns, passage_texts):
+    """Bind displayed gold passages and both retriever panels to source rows."""
+    by_example = {record["example_id"]: record for record in records}
+    for payload in reviewer_files.values():
+        for case in payload["cases"]:
+            key = (case["example_id"], case["retriever"])
+            record = by_example.get(case["example_id"])
+            if record is None or case["retriever"] not in record["retrievers"]:
+                raise BatchError(f"case {key}: source record is missing")
+
+            expected_target = _retriever_payload(
+                record, case["retriever"], bind_rank_pattern(key, patterns)
+            )
+            for field in ("gold_ranks", "retrieved_results", "rank_pattern"):
+                if case[field] != expected_target[field]:
+                    raise BatchError(
+                        f"case {key}: displayed target {field} does not match source"
+                    )
+
+            expected_passages = []
+            for title in record["gold_titles"]:
+                if title not in passage_texts:
+                    raise BatchError(
+                        f"case {key}: source text for gold title {title!r} is missing"
+                    )
+                expected_passages.append({"title": title, "text": passage_texts[title]})
+            if case["gold_passages"] != expected_passages:
+                raise BatchError(
+                    f"case {key}: displayed gold passages do not match source"
+                )
+
+            other = [name for name in record["retrievers"] if name != case["retriever"]]
+            if len(other) != 1:
+                raise BatchError(f"case {key}: expected exactly one comparison retriever")
+            comparison_key = (case["example_id"], other[0])
+            expected_comparison = _retriever_payload(
+                record, other[0], bind_rank_pattern(comparison_key, patterns)
+            )
+            if case["comparison"] != expected_comparison:
+                raise BatchError(
+                    f"case {key}: displayed comparison does not match source"
+                )
 
 
 def validate_batch(reviewer_files, keys, overlap_keys, patterns, spec):
@@ -1111,6 +1236,7 @@ def build_batch(run_dir, spec=V1_SPEC):
     config = bfr.load_config(config_path, run_id)
     records = bfr.load_details(details_path, config)
     patterns = load_rank_pattern_source(patterns_path, run_id=run_id)
+    passage_texts = build_passage_text_index(records)
 
     strata = eligible_strata(records, spec.review_cutoff)
     verify_eligible_population(strata, spec)
@@ -1120,7 +1246,7 @@ def build_batch(run_dir, spec=V1_SPEC):
     overlap_keys = select_overlap(selected, spec)
     verify_selection_oracle(keys, overlap_keys, spec)
 
-    cases = build_cases(records, keys, overlap_keys, patterns, spec)
+    cases = build_cases(records, keys, overlap_keys, patterns, passage_texts, spec)
 
     private_keys = [key for key in keys if key not in set(overlap_keys)]
     assignment = split_private_units(private_keys, spec)
@@ -1131,6 +1257,9 @@ def build_batch(run_dir, spec=V1_SPEC):
         for reviewer, unit_keys in per_reviewer.items()
     }
     validate_batch(reviewer_files, keys, overlap_keys, patterns, spec)
+    validate_review_context_binding(
+        reviewer_files, records, patterns, passage_texts
+    )
 
     rows = build_assignment_rows(keys, overlap_keys, per_reviewer, cases, spec)
     return Batch(reviewer_files, rows, keys, overlap_keys, patterns)

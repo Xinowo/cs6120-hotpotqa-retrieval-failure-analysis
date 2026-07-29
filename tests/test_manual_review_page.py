@@ -291,6 +291,36 @@ def test_the_page_rejects_a_case_that_carries_a_human_label(
     assert result is not None and "carries a label field" in result
 
 
+@requires_node
+@requires_formal_run
+@pytest.mark.parametrize(
+    "mutation, expected",
+    [
+        ("blank_gold_text", "gold passage 1 must carry non-empty text"),
+        ("same_retriever", "comparison must name the other retriever"),
+        ("missing_comparison_results", "comparison is missing retrieved_results"),
+    ],
+)
+def test_the_page_rejects_incomplete_gold_or_comparison_context(
+    contract_js, formal_reviewer_files, mutation, expected, tmp_path
+):
+    payload = _mutable(formal_reviewer_files["xin"])
+    case = payload["cases"][0]
+    if mutation == "blank_gold_text":
+        case["gold_passages"][0]["text"] = ""
+    elif mutation == "same_retriever":
+        case["comparison"]["retriever"] = case["retriever"]
+    else:
+        del case["comparison"]["retrieved_results"]
+    result = run_contract(
+        contract_js,
+        "result = MANUAL_REVIEW_CONTRACT.validateReviewerFile(INPUT);",
+        payload=payload,
+        tmp_path=tmp_path,
+    )
+    assert result is not None and expected in result
+
+
 # ────────── the closed section-4 shapes and the frozen reviewer set ───────────
 #
 # The same paired controls the extractor's suite applies to `validate_batch`, run

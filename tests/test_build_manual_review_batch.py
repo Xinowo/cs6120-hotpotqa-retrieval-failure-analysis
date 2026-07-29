@@ -173,6 +173,18 @@ def build_synthetic_run(tmp_path, eligible=SYNTH_ELIGIBLE, extra_hits=3):
                 }
             )
 
+    # The formal pooled run's stored top-50 union contains every selected gold
+    # passage, even when that passage is absent for the unit being reviewed. Give
+    # this offline fixture the same property by carrying each example's two gold
+    # passages in the next example's non-gold rank-50 slots. This changes no
+    # unit's own gold ranks or eligibility.
+    for position, record in enumerate(records):
+        carrier = records[(position + 1) % len(records)]
+        for title, retriever in zip(record["gold_titles"], RETRIEVERS):
+            carrier_item = carrier["retrievers"][retriever]["top_k"][49]
+            carrier_item["title"] = title
+            carrier_item["text"] = f"Ground-truth passage text for {title}."
+
     with io.open(str(run_dir / "details.jsonl"), "w", encoding="utf-8", newline="") as fh:
         for record in records:
             fh.write(json.dumps(record, ensure_ascii=False) + "\n")
@@ -750,8 +762,40 @@ def test_every_case_carries_exactly_the_frozen_fields_and_no_label(batch):
         assert tuple(case) == mrb.CASE_FIELDS
         assert "label" not in case
         assert len(case["retrieved_results"]) == 50
+        assert len(case["comparison"]["retrieved_results"]) == 50
+        assert case["comparison"]["retriever"] != case["retriever"]
+        assert [p["title"] for p in case["gold_passages"]] == case["gold_titles"]
+        assert all(p["text"] for p in case["gold_passages"])
         for result in case["retrieved_results"]:
             assert tuple(result) == mrb.RESULT_FIELDS
+
+
+def test_gold_passages_and_comparison_are_bound_to_the_read_only_source(
+    batch, synthetic_run
+):
+    records = _load_records(synthetic_run)
+    passage_texts = mrb.build_passage_text_index(records)
+    mrb.validate_review_context_binding(
+        batch.reviewer_files, records, batch.patterns, passage_texts
+    )
+
+
+@pytest.mark.parametrize("field", ["gold_passages", "comparison"])
+def test_tampered_review_context_is_rejected(batch, synthetic_run, field):
+    records = _load_records(synthetic_run)
+    passage_texts = mrb.build_passage_text_index(records)
+    files = copy.deepcopy(batch.reviewer_files)
+    case = files["xin"]["cases"][0]
+    if field == "gold_passages":
+        case[field][0]["text"] += " tampered"
+        expected = "displayed gold passages"
+    else:
+        case[field]["retrieved_results"][0]["title"] = "Wrong comparison title"
+        expected = "displayed comparison"
+    with pytest.raises(mrb.BatchError, match=expected):
+        mrb.validate_review_context_binding(
+            files, records, batch.patterns, passage_texts
+        )
 
 
 def test_a_reviewer_file_holds_no_case_assigned_only_to_the_other_reviewer(batch):
@@ -1098,8 +1142,8 @@ def test_the_page_states_the_same_contract_as_the_extractor():
         # The closed shapes and the reviewer set are literals in the shipped page
         # too, so a page that quietly widened either one is rejected here rather
         # than discovered by a reviewer opening a non-conforming file.
-        ('"rank_pattern", "review_cutoff", "is_overlap"];',
-         '"rank_pattern", "review_cutoff", "is_overlap", "label"];'),
+        ('"comparison", "review_cutoff", "is_overlap"];',
+         '"comparison", "review_cutoff", "is_overlap", "label"];'),
         ('var REVIEWER_IDS = ["jiajun", "xin"];',
          'var REVIEWER_IDS = ["jiajun", "xin", "alice"];'),
         ('var REVIEWER_FILE_FIELDS = ["batch_id", "reviewer_id", "run_id", "review_cutoff", "cases"];',
@@ -1153,7 +1197,7 @@ def test_the_page_never_copies_the_machine_pattern_into_the_human_label():
         '? draft.label : "";'
     ) in text
     # The machine pattern is rendered read-only: text content, never a value.
-    assert "value.textContent = caseObj.rank_pattern;" in text
+    assert "value.textContent = caseObj.retriever + \" = \" + caseObj.rank_pattern" in text
     assert "Machine rank pattern (10-class)" in text
     assert "Human failure label (optional)" in text
 

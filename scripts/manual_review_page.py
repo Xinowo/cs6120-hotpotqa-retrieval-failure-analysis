@@ -98,11 +98,16 @@ CASE_FIELDS = (
     "question",
     "gold_titles",
     "gold_ranks",
+    "gold_passages",
     "retrieved_results",
     "rank_pattern",
+    "comparison",
     "review_cutoff",
     "is_overlap",
 )
+
+GOLD_PASSAGE_FIELDS = ("title", "text")
+COMPARISON_FIELDS = ("retriever", "gold_ranks", "retrieved_results", "rank_pattern")
 
 # Exactly two people review this batch (sections 3.2 / 3.3 / 5). A third
 # identity is a rejection even when it is a syntactically valid identifier: the
@@ -141,6 +146,12 @@ def verify_page_contract(page_html=None):
         + ", ".join(f'"{name}"' for name in REVIEWER_FILE_FIELDS)
         + "];",
         "var CASE_FIELDS = [" + ", ".join(f'"{name}"' for name in CASE_FIELDS) + "];",
+        "var GOLD_PASSAGE_FIELDS = ["
+        + ", ".join(f'"{name}"' for name in GOLD_PASSAGE_FIELDS)
+        + "];",
+        "var COMPARISON_FIELDS = ["
+        + ", ".join(f'"{name}"' for name in COMPARISON_FIELDS)
+        + "];",
         "var REVIEWER_IDS = [" + ", ".join(f'"{name}"' for name in REVIEWER_IDS) + "];",
     ]
     missing = [literal for literal in required if literal not in text]
@@ -199,9 +210,16 @@ PAGE_HTML = r"""<!DOCTYPE html>
   .qtype, .retr { font-size: 12px; color: #555; }
   .eid { font-size: 12px; color: #888; }
   .question { margin: 8px 0; font-size: 15px; }
-  .gold-summary { font-size: 13px; margin: 6px 0; }
-  .gold-summary .hit { color: #0a7d29; }
-  .gold-summary .miss { color: #b00020; }
+  .gold-evidence { margin: 10px 0; border: 2px solid #c99700; border-radius: 6px;
+    background: #fffaf0; overflow: hidden; }
+  .gold-evidence h3 { margin: 0; padding: 7px 9px; font-size: 14px;
+    background: #fff0bd; color: #4d3900; }
+  .gold-passage { padding: 8px 9px; border-top: 1px solid #ead89c; }
+  .gold-title { font-weight: 700; }
+  .gold-text { margin: 4px 0 6px; font-size: 13px; color: #333; }
+  .gold-ranks { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 12px; }
+  .gold-ranks .hit { color: #0a7d29; }
+  .gold-ranks .miss { color: #b00020; font-weight: 600; }
   .machine { margin: 8px 0; padding: 8px; border: 1px dashed #9a9a9a;
     border-radius: 5px; background: #f3f3f3; font-size: 13px; }
   .machine .machine-label { font-weight: 600; color: #444; }
@@ -211,7 +229,12 @@ PAGE_HTML = r"""<!DOCTYPE html>
     color: #555; }
   .results { margin-top: 8px; border: 1px solid #e2e2e2; border-radius: 5px;
     padding: 8px; background: #fafafa; }
+  .retrieval-comparison { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 10px; align-items: start; }
+  .results.target { border: 2px solid #2f6fb0; }
+  .results.context { border: 1px dashed #777; }
   .results h3 { font-size: 13px; margin: 0 0 4px; }
+  .results .role-note { margin: 0 0 6px; color: #666; font-size: 11px; }
   .row { border-top: 1px solid #eee; padding: 4px 0; font-size: 13px; }
   .row.gold { background: #fff6d6; }
   .row .rank { color: #666; }
@@ -231,6 +254,9 @@ PAGE_HTML = r"""<!DOCTYPE html>
   .human textarea { min-height: 96px; resize: vertical; }
   .human .hint { font-size: 11px; color: #555; font-weight: 400; }
   .empty-msg { font-size: 15px; color: #555; padding: 20px; text-align: center; }
+  @media (max-width: 820px) {
+    .retrieval-comparison { grid-template-columns: 1fr; }
+  }
 </style>
 </head>
 <body>
@@ -270,6 +296,10 @@ PAGE_HTML = r"""<!DOCTYPE html>
        deterministic machine structure computed upstream. It is read-only
        context: it says <em>where</em> the gold titles ranked, never
        <em>why</em> retrieval failed, and it is never a failure label.</p>
+    <p>Each card shows both complete <strong>gold evidence passages</strong> and
+       places the assigned retrieval method beside the other method. Write your
+       note for the panel marked <strong>Review target</strong>; the other panel
+       is read-only comparison context and creates no additional annotation.</p>
     <p>A useful note prompt:</p>
 <pre>Observed:
 Missing gold:
@@ -306,7 +336,9 @@ var MANUAL_REVIEW_CONTRACT = (function () {
   // failure label and the notes live only in this page's draft state and in the
   // exported CSV, never in a generated case.
   var REVIEWER_FILE_FIELDS = ["batch_id", "reviewer_id", "run_id", "review_cutoff", "cases"];
-  var CASE_FIELDS = ["example_id", "retriever", "question_type", "question", "gold_titles", "gold_ranks", "retrieved_results", "rank_pattern", "review_cutoff", "is_overlap"];
+  var CASE_FIELDS = ["example_id", "retriever", "question_type", "question", "gold_titles", "gold_ranks", "gold_passages", "retrieved_results", "rank_pattern", "comparison", "review_cutoff", "is_overlap"];
+  var GOLD_PASSAGE_FIELDS = ["title", "text"];
+  var COMPARISON_FIELDS = ["retriever", "gold_ranks", "retrieved_results", "rank_pattern"];
 
   // The frozen two-person reviewer set. A syntactically valid third identity is a
   // rejection: the active identity drives isolated draft storage and the
@@ -433,6 +465,38 @@ var MANUAL_REVIEW_CONTRACT = (function () {
         return where + " must carry a non-empty gold_titles array";
       if (!isPlainObject(c.gold_ranks))
         return where + " must carry gold_ranks as an object";
+      var primaryRanksShape = keySetError(c.gold_ranks, c.gold_titles);
+      if (primaryRanksShape) return where + " gold_ranks " + primaryRanksShape;
+      if (!Array.isArray(c.gold_passages)
+          || c.gold_passages.length !== c.gold_titles.length)
+        return where + " must carry one gold_passages item per gold title";
+      for (var g = 0; g < c.gold_passages.length; g++) {
+        var passage = c.gold_passages[g];
+        if (!isPlainObject(passage)) return where + " gold passage " + (g + 1) + " is not an object";
+        var passageShape = keySetError(passage, GOLD_PASSAGE_FIELDS);
+        if (passageShape) return where + " gold passage " + (g + 1) + " " + passageShape;
+        if (passage.title !== c.gold_titles[g])
+          return where + " gold passage " + (g + 1) + " title does not match gold_titles";
+        if (typeof passage.text !== "string" || passage.text === "")
+          return where + " gold passage " + (g + 1) + " must carry non-empty text";
+      }
+      if (!isPlainObject(c.comparison))
+        return where + " must carry comparison as an object";
+      var comparisonShape = keySetError(c.comparison, COMPARISON_FIELDS);
+      if (comparisonShape) return where + " comparison " + comparisonShape;
+      if (typeof c.comparison.retriever !== "string"
+          || !IDENTIFIER_RE.test(c.comparison.retriever)
+          || c.comparison.retriever === c.retriever)
+        return where + " comparison must name the other retriever";
+      if (!isPlainObject(c.comparison.gold_ranks))
+        return where + " comparison must carry gold_ranks as an object";
+      var comparisonRanksShape = keySetError(c.comparison.gold_ranks, c.gold_titles);
+      if (comparisonRanksShape) return where + " comparison gold_ranks " + comparisonRanksShape;
+      if (!Array.isArray(c.comparison.retrieved_results))
+        return where + " comparison must carry retrieved_results as an array";
+      if (typeof c.comparison.rank_pattern !== "string"
+          || c.comparison.rank_pattern === "")
+        return where + " comparison must carry a non-empty rank_pattern";
       var key = unitKey(c);
       if (seen[key]) return where + " duplicates an earlier unit key";
       seen[key] = true;
@@ -598,6 +662,8 @@ var MANUAL_REVIEW_CONTRACT = (function () {
     STORAGE_PREFIX: STORAGE_PREFIX,
     NOTES_COLUMNS: NOTES_COLUMNS,
     CASE_FIELDS: CASE_FIELDS,
+    GOLD_PASSAGE_FIELDS: GOLD_PASSAGE_FIELDS,
+    COMPARISON_FIELDS: COMPARISON_FIELDS,
     REVIEWER_FILE_FIELDS: REVIEWER_FILE_FIELDS,
     REVIEWER_IDS: REVIEWER_IDS,
     isValidIso: isValidIso,
@@ -736,28 +802,46 @@ var MANUAL_REVIEW_CONTRACT = (function () {
     });
   }
 
-  function goldSummary(caseObj) {
-    var wrap = document.createElement("div");
-    wrap.className = "gold-summary";
-    wrap.appendChild(document.createTextNode("gold: "));
-    caseObj.gold_titles.forEach(function (title, i) {
-      if (i > 0) wrap.appendChild(document.createTextNode("; "));
-      wrap.appendChild(document.createTextNode(title + " — "));
-      var rank = caseObj.gold_ranks[title];
-      var span = document.createElement("span");
-      if (rank === null || rank === undefined) {
-        span.className = "miss";
-        span.textContent = "not in top 50";
-      } else if (rank <= caseObj.review_cutoff) {
-        span.className = "hit";
-        span.textContent = "rank " + rank;
-      } else {
-        span.className = "miss";
-        span.textContent = "rank " + rank + " (below " + caseObj.review_cutoff + ")";
-      }
-      wrap.appendChild(span);
+  function rankText(rank, cutoff) {
+    if (rank === null || rank === undefined) return "not in top 50";
+    if (rank <= cutoff) return "rank " + rank + " (inside top " + cutoff + ")";
+    return "rank " + rank + " (below top " + cutoff + ")";
+  }
+
+  function goldEvidence(caseObj) {
+    var box = document.createElement("section");
+    box.className = "gold-evidence";
+    var head = document.createElement("h3");
+    head.textContent = "Gold evidence passages (ground truth; both shown in full)";
+    box.appendChild(head);
+    caseObj.gold_passages.forEach(function (passage, i) {
+      var row = document.createElement("div");
+      row.className = "gold-passage";
+      var title = document.createElement("div");
+      title.className = "gold-title";
+      title.textContent = "Gold " + (i + 1) + ": " + passage.title;
+      var text = document.createElement("div");
+      text.className = "gold-text";
+      text.textContent = passage.text;
+      var ranks = document.createElement("div");
+      ranks.className = "gold-ranks";
+      [
+        [caseObj.retriever, caseObj.gold_ranks[passage.title], true],
+        [caseObj.comparison.retriever,
+         caseObj.comparison.gold_ranks[passage.title], false]
+      ].forEach(function (entry) {
+        var span = document.createElement("span");
+        var missed = entry[1] === null || entry[1] === undefined
+          || entry[1] > caseObj.review_cutoff;
+        span.className = missed ? "miss" : "hit";
+        span.textContent = (entry[2] ? "review target " : "comparison ")
+          + entry[0] + ": " + rankText(entry[1], caseObj.review_cutoff);
+        ranks.appendChild(span);
+      });
+      row.appendChild(title); row.appendChild(text); row.appendChild(ranks);
+      box.appendChild(row);
     });
-    return wrap;
+    return box;
   }
 
   // The machine layer: read-only, visually distinct, never an input, and never
@@ -770,7 +854,9 @@ var MANUAL_REVIEW_CONTRACT = (function () {
     name.textContent = "Machine rank pattern (10-class): ";
     var value = document.createElement("span");
     value.className = "machine-value";
-    value.textContent = caseObj.rank_pattern;
+    value.textContent = caseObj.retriever + " = " + caseObj.rank_pattern
+      + "; " + caseObj.comparison.retriever + " = "
+      + caseObj.comparison.rank_pattern;
     var note = document.createElement("span");
     note.className = "machine-note";
     note.textContent = "Read-only machine structure: where the gold titles ranked. "
@@ -781,17 +867,24 @@ var MANUAL_REVIEW_CONTRACT = (function () {
     return box;
   }
 
-  function resultsList(caseObj) {
+  function resultsList(retriever, retrievedResults, goldTitles, isTarget) {
     var box = document.createElement("div");
-    box.className = "results";
+    box.className = "results " + (isTarget ? "target" : "context");
     var head = document.createElement("h3");
-    head.textContent = caseObj.retriever + " top " + caseObj.retrieved_results.length;
+    head.textContent = (isTarget ? "Review target: " : "Read-only comparison: ")
+      + retriever + " top " + retrievedResults.length;
     box.appendChild(head);
+    var role = document.createElement("div");
+    role.className = "role-note";
+    role.textContent = isTarget
+      ? "Write the note for this method; this method defines the exported unit."
+      : "Context only: use it to explain why the methods differ.";
+    box.appendChild(role);
 
     var goldSet = Object.create(null);
-    caseObj.gold_titles.forEach(function (t) { goldSet[t] = true; });
+    goldTitles.forEach(function (t) { goldSet[t] = true; });
 
-    caseObj.retrieved_results.forEach(function (item) {
+    retrievedResults.forEach(function (item) {
       var row = document.createElement("div");
       row.className = "row" + (goldSet[item.title] ? " gold" : "");
       var line = document.createElement("div");
@@ -818,6 +911,17 @@ var MANUAL_REVIEW_CONTRACT = (function () {
       box.appendChild(row);
     });
     return box;
+  }
+
+  function retrievalComparison(caseObj) {
+    var grid = document.createElement("div");
+    grid.className = "retrieval-comparison";
+    grid.appendChild(resultsList(
+      caseObj.retriever, caseObj.retrieved_results, caseObj.gold_titles, true));
+    grid.appendChild(resultsList(
+      caseObj.comparison.retriever, caseObj.comparison.retrieved_results,
+      caseObj.gold_titles, false));
+    return grid;
   }
 
   function renderCard(caseObj, sequence) {
@@ -848,9 +952,9 @@ var MANUAL_REVIEW_CONTRACT = (function () {
     question.className = "question"; question.textContent = caseObj.question;
     card.appendChild(question);
 
-    card.appendChild(goldSummary(caseObj));
+    card.appendChild(goldEvidence(caseObj));
     card.appendChild(machineContext(caseObj));
-    card.appendChild(resultsList(caseObj));
+    card.appendChild(retrievalComparison(caseObj));
 
     // The human layer: a note textarea plus a separate, optional label input.
     // Both start from the reviewer's own draft state only, and the label starts
