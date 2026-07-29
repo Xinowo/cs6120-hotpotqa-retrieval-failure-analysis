@@ -1,3 +1,4 @@
 Method,Any Evidence Hit Rate@2,Any Evidence Hit Rate@5,Any Evidence Hit Rate@10,Full Evidence Hit Rate@2,Full Evidence Hit Rate@5,Full Evidence Hit Rate@10,Evidence Recall@5,MRR@10,MRR@50
 BM25,0.748,0.874,0.956,0.140,0.302,0.500,0.588,0.751,0.753
 Dense,0.884,0.962,0.986,0.244,0.502,0.664,0.732,0.869,0.870
+Dense + Rerank,0.966,0.994,1.000,0.436,0.654,0.804,0.824,0.948,0.948

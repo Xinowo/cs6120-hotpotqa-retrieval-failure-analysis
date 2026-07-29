@@ -2,15 +2,15 @@
 summarize_results.py
 
 Aggregation-only helper: read the formal long-format result CSVs
-(results/dense_results.csv, results/bm25_results.csv, and any future
-rerank_results.csv sharing src.results_schema.RESULT_COLUMNS) and reduce them
-to a per-(method, setting) summary table.
+(results/bm25_results.csv, results/dense_results.csv, and
+results/rerank_results.csv, which all share src.results_schema.RESULT_COLUMNS)
+and reduce them to a per-(method, setting) summary table.
 
 This script computes group means of columns that already exist in the input
 CSVs; it defines no metrics of its own. Per the project AI-use boundary, metric
 definitions and their per-example computation live in src/evaluator.py and are
 not touched here. The general summary applies the schema's rule that a group
-mean of reciprocal_rank_at_K is reported as MRR@K. The optional Week 2 main
+mean of reciprocal_rank_at_K is reported as MRR@K. The optional pooled main
 table additionally maps frozen storage identifiers to the approved
 report-facing aggregate names; it does not rename the source CSV columns.
 
@@ -53,9 +53,13 @@ RR_TO_MRR = {
 }
 METRIC_COLUMNS = RECALL_COLUMNS + RECIPROCAL_RANK_COLUMNS
 
-DEFAULT_INPUTS = ["results/dense_results.csv", "results/bm25_results.csv"]
+DEFAULT_INPUTS = [
+    "results/bm25_results.csv",
+    "results/dense_results.csv",
+    "results/rerank_results.csv",
+]
 
-# Report-facing aggregate names for the Week 2 pooled main table. These do not
+# Report-facing aggregate names for the final pooled main table. These do not
 # alter the frozen per-example storage identifiers in RESULT_COLUMNS.
 MAIN_TABLE_COLUMN_MAP = {
     "method": "Method",
@@ -69,7 +73,11 @@ MAIN_TABLE_COLUMN_MAP = {
     "MRR@10": "MRR@10",
     "MRR@50": "MRR@50",
 }
-MAIN_TABLE_METHOD_LABELS = {"bm25": "BM25", "dense": "Dense"}
+MAIN_TABLE_METHOD_LABELS = {
+    "bm25": "BM25",
+    "dense": "Dense",
+    "rerank": "Dense + Rerank",
+}
 MAIN_TABLE_COLUMNS = list(MAIN_TABLE_COLUMN_MAP.values())
 
 
@@ -123,7 +131,7 @@ def summarize(df: pd.DataFrame, group_by) -> pd.DataFrame:
 
 
 def build_main_table(df: pd.DataFrame) -> pd.DataFrame:
-    """Build the report-facing pooled BM25-vs-Dense Week 2 main table."""
+    """Build the report-facing pooled three-method main table."""
     validate_result_schema(df.columns, "input dataframe")
     pooled = df[
         (df["setting"] == "pooled")
@@ -151,8 +159,20 @@ def build_main_table(df: pd.DataFrame) -> pd.DataFrame:
         raise ValueError(
             f"Main table inputs contain duplicate pooled example IDs: {duplicate_methods}"
         )
-    if ids_by_method["bm25"] != ids_by_method["dense"]:
-        raise ValueError("BM25 and Dense pooled example ID sets do not match")
+    # Report the partition of methods by identical ID set rather than diffing
+    # against an arbitrary reference method: with three or more methods, a fixed
+    # reference makes the outlier look like the agreeing majority is at fault.
+    methods_by_id_set = {}
+    for method in MAIN_TABLE_METHOD_LABELS:
+        methods_by_id_set.setdefault(
+            frozenset(ids_by_method[method]), []
+        ).append(method)
+    if len(methods_by_id_set) > 1:
+        partition = sorted(sorted(methods) for methods in methods_by_id_set.values())
+        raise ValueError(
+            "Pooled example ID sets do not match across main-table methods; "
+            f"methods grouped by identical ID set: {partition}"
+        )
 
     summary = summarize(pooled, ["method", "setting"])
     order = {method: index for index, method in enumerate(MAIN_TABLE_METHOD_LABELS)}
@@ -218,7 +238,7 @@ if __name__ == "__main__":
         "--main-table",
         action="store_true",
         help=(
-            "Write the pooled BM25-vs-Dense Week 2 main table with "
+            "Write the pooled BM25-vs-Dense-vs-Rerank main table with "
             "report-facing aggregate names and three-decimal values."
         ),
     )
