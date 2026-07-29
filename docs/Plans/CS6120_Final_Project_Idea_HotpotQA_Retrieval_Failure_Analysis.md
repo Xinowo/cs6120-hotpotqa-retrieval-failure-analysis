@@ -178,14 +178,14 @@ Core experiment plan:
 - Analyze reranker rescue and damage cases.
 - Manually inspect representative cases and assign failure types using the taxonomy.
 
-Optional extension plan, decided at the Week 4 decision point (after the 7/28 final presentation), only if the core project is stable:
+Optional extension plan, decided at the Week 5 decision point (after the 8/4 final presentation), only if the core project is stable:
 
 - Contrastively fine-tune the dense retriever on HotpotQA train-split pairs and evaluate per failure category.
 
 Current project dates:
 
 - Scope sync date: 2026-07-12.
-- Final presentation (slides due): 2026-07-28.
+- Final presentation (slides due): 2026-08-04.
 - Full submission deadline: 2026-08-14.
 
 ---
