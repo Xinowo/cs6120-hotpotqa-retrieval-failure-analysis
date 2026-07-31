@@ -1,6 +1,6 @@
 ---
 status: active
-last_updated: 2026-07-27
+last_updated: 2026-07-29
 ---
 
 # CS6120 Final Project Scope
@@ -708,6 +708,9 @@ Both members should contribute to:
 
 ## 15. Timeline
 
+This high-level timeline mirrors the current schedule in
+`docs/Plans/CS6120_Final_Project_Weekly_Todo_Plan.md`. 
+
 **Two hard deadlines drive this timeline:**
 
 - **8/4 — final presentation (slides due).** Present whatever results are ready at that time (the instructor confirmed results need not be finished — or frozen — before the presentation); the slide deck is finalized and rehearsed within Week 4.
@@ -774,42 +777,49 @@ Tasks:
 - Start drafting presentation slides (team-made per the AI policy; AI for structural advice and proofreading only); finalize and rehearse them in Week 4.
 - Start figures (presentation figures double as report figures).
 
-### Week 4: 7/28-8/3
+### Week 4: 7/28-8/4
 
 Goal:
 
-> Lock experiments, build final deliverables, and finalize the presentation for 8/4.
+> Produce, validate, rehearse, and submit the team-authored final presentation on 8/4.
 
 Tasks:
 
-- Finalize the presentation deck and rehearse for 8/4.
-- Freeze the presentation content and complete the team rehearsal.
-- Defer the fine-tuning decision point until after the 8/4 presentation.
-- Do not begin fine-tuning during Week 4; prioritize the frozen core experiments, presentation, and report skeleton.
-- Decide final dataset size.
-- Run final experiments and save final result CSV files.
-- Generate final tables and figures.
-- Implement demo.py.
-- Write README.
-- Add unit tests.
-- Write report skeleton.
+- Validate the 500-example presentation snapshot, corpus size, model settings,
+  cutoffs, result tables, subgroup values, and rescue/damage counts against
+  saved artifacts.
+- Prepare only the tables, figures, manually supported qualitative examples,
+  and backup material needed for the talk.
+- Complete the team-authored deck, assign every main slide to a speaker, and
+  keep the main talk within 8-10 minutes.
+- Run at least two timed full-team rehearsals, revise for clarity and timing,
+  and prepare answers for the core method, metric, result, manual-review, AI
+  usage, and limitation questions.
+- Soft-freeze slide content on 8/2, complete final checks on 8/3, and upload the
+  approved deck to Canvas before class on 8/4 with a PDF backup.
+- Defer report drafting, `demo.py`, optional fine-tuning, new experiments, and
+  report-only figures until after the presentation.
 
-### Week 5: 8/4-8/10
+### Week 5: 8/5-8/10
 
 Goal:
 
-> Deliver the final presentation on 8/4, then complete the report.
+> Convert the validated presentation work into a complete report draft and reproducible project package by 8/10.
 
 Tasks:
 
-- **8/4: deliver the final presentation and collect feedback.**
-- Make the fine-tuning go/no-go decision after the presentation; if chosen, complete the hand-written training and per-failure-category evaluation within 8/5–8/10.
-- Finish Prior Work section.
-- Finish Methods section.
-- Finish Results and Discussion, incorporating presentation feedback.
-- Add Appendix / user manual.
-- Add AI usage declaration.
-- Run explanation test.
+- Review presentation feedback on 8/5 and freeze the report outline, final
+  experiment scope, section ownership, and required figures.
+- Make the joint fine-tuning go/no-go decision on 8/5; no-go is the default,
+  and any chosen hand-written extension must be stable by 8/8 without delaying
+  the report.
+- Complete and merge all report sections with no placeholders by 8/7, then
+  finalize tables, figures, citations, contributions, and the AI Usage
+  Declaration.
+- Finalize README, requirements, `demo.py`, targeted verification, and the
+  submission inventory.
+- Cross-review the complete report, run the Explanation Test, and produce the
+  submission-candidate package by 8/10.
 
 ### Final Days: 8/11-8/14
 
@@ -913,7 +923,7 @@ If the fine-tuning extension is added:
 | Fine-tuning code violates AI policy | Hand-write pair construction and training loop; document the boundary in the AI Usage Declaration |
 | Reranker takes too long | Use an off-the-shelf cross-encoder (no training); if time is tight, reduce pooled candidate depth (N = 20) and keep the per-question reranking, which is cheap — the reranker itself cannot be cut because it is promised in the proposal |
 | Presentation (8/4) gets rushed | Pick the slide-content snapshot by ~8/2 and build slides during Week 4, not the night before; unfinished results stay out of the deck (instructor confirmed presenting whatever is done is fine) |
-| Report gets rushed | Start the report skeleton during Week 4 before the presentation; finish it in Week 5 immediately after the presentation |
+| Report gets rushed | Reuse the validated presentation snapshot and owner-written analysis notes; freeze the report outline on 8/5, merge a placeholder-free draft by 8/7, and produce the submission candidate by 8/10 |
 | Scope expands too much | Keep answer generation and full Wikipedia retrieval out of scope |
 | Code is hard to explain | Use simple classes and run an explanation test before submission |
 
