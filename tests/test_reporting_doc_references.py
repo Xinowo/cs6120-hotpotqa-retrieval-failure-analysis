@@ -130,10 +130,20 @@ def test_the_cited_course_protocol_section_still_states_that_boundary():
     A path that resolves and a section number that exists are not enough — the
     citation is only sound if the named section still says what the tool claims
     it says, so the rule text itself is asserted here.
+
+    The heading is located without assuming a line terminator. `_read` opens the
+    file untranslated, so a checkout that delivered CRLF would make a literal
+    "\\n## ..." separator match nothing, and the subject of this assertion would
+    fail as an opaque IndexError instead of a statement about the protocol.
     """
     protocol = _read(CURRENT_COURSE_PROTOCOL)
-    section_2 = protocol.split("\n## 2. Stable boundaries\n")[1].split("\n## ")[0]
-    assert "no system or agent pre-fills a causal label" in section_2
+    sections = re.split(r"\r?\n## ", protocol)
+    heading = re.compile(r"2\. Stable boundaries\r?\n")
+    matched = [s for s in sections if heading.match(s)]
+    assert len(matched) == 1, \
+        f"{CURRENT_COURSE_PROTOCOL} must have exactly one '## 2. Stable " \
+        f"boundaries' heading; found {len(matched)}"
+    assert "no system or agent pre-fills a causal label" in matched[0]
 
 
 def test_the_accepted_failure_review_boundary_citation_is_still_live():

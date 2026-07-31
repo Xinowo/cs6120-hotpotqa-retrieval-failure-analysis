@@ -5,4 +5,15 @@
 #
 # The manual-review workspace is generated with LF-only bytes and is verified by
 # comparing raw bytes against a fresh regeneration, so it is locked here.
+# It is machine-generated and never hand-edited, so suppressing conversion in
+# both directions is what byte identity means for it.
 results/annotations/** -text
+
+# The tracked specifications are also identified by their LF bytes: the accepted
+# digest of the manual-review course protocol is computed over them, and
+# tests/test_reporting_doc_references.py parses one of them untranslated. Unlike
+# the generated workspace above these are hand-edited, so -text would be the
+# wrong tool -- it would let a CRLF working copy write CRLF straight into the
+# index and break the recorded digest permanently. Normalizing to LF on the way
+# in and checking out LF on the way out protects both directions.
+docs/specs/** text eol=lf
