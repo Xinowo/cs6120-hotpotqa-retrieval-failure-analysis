@@ -23,8 +23,8 @@ results/runs/
 # small assignment table in the same directory DO stay tracked, and both case
 # files regenerate byte-for-byte from the read-only run via
 # scripts/build_manual_review_batch.py.
-results/annotations/*/xin_cases.json
-results/annotations/*/jiajun_cases.json
+results/annotations/*/*_cases.json
+results/annotations/*/*_notes*.csv
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

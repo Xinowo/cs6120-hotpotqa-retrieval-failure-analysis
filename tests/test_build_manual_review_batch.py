@@ -1321,13 +1321,59 @@ def test_generating_the_formal_batch_leaves_the_source_run_unchanged(tmp_path):
 
 @requires_formal_run
 def test_the_checked_in_batch_artifacts_are_reproducible(tmp_path):
-    """The workspace in the repository must regenerate from the read-only run."""
+    """The workspace in the repository must regenerate from the read-only run.
+
+    Human `<reviewer_id>_notes.csv` exports live in the same committed
+    directory as the four generator-owned artifacts (section 6 of the
+    protocol). The generator does not author those files, so reproducibility
+    is scoped to its own outputs rather than the whole directory listing.
+    """
     committed = os.path.join(REPO_ROOT, "results", "annotations", mrb.BATCH_ID)
     if not os.path.isdir(committed):
         pytest.skip("the manual_review_v1 workspace has not been generated yet")
     out_dir = tmp_path / "regenerated"
-    mrb.generate_batch(out_dir=str(out_dir))
-    assert _digest_tree(str(out_dir)) == _digest_tree(committed)
+    written = mrb.generate_batch(out_dir=str(out_dir))
+    owned_names = {os.path.basename(path) for path in written}
+    committed_digests = _digest_tree(committed)
+    assert owned_names <= set(committed_digests)
+    assert _digest_tree(str(out_dir)) == {
+        name: digest for name, digest in committed_digests.items() if name in owned_names
+    }
+
+
+def test_generator_owned_digest_scope_ignores_coexisting_notes_but_catches_drift(
+    synthetic_run, spec, tmp_path
+):
+    """R20-O1 legal control: a coexisting human notes file must not fail
+    reproducibility, but drift in a generator-owned file still must.
+    """
+    out_dir = tmp_path / "workspace"
+    written = mrb.generate_batch(
+        runs_root=os.path.dirname(synthetic_run), out_dir=str(out_dir), spec=spec
+    )
+    owned_names = {os.path.basename(path) for path in written}
+
+    def _owned_digests(directory):
+        return {
+            name: digest
+            for name, digest in _digest_tree(str(directory)).items()
+            if name in owned_names
+        }
+
+    regenerated = tmp_path / "regenerated"
+    mrb.generate_batch(
+        runs_root=os.path.dirname(synthetic_run), out_dir=str(regenerated), spec=spec
+    )
+
+    (out_dir / "xin_notes.csv").write_text(
+        "batch_id,run_id,example_id,retriever,review_cutoff,label,notes,annotator,annotated_at\n",
+        encoding="utf-8",
+    )
+    assert _owned_digests(out_dir) == _owned_digests(regenerated)
+
+    drifted_path = out_dir / mrb.ASSIGNMENT_NAME
+    drifted_path.write_bytes(drifted_path.read_bytes() + b"# tampered\n")
+    assert _owned_digests(out_dir) != _owned_digests(regenerated)
 
 
 # ─────────────────────────────── the CLI ─────────────────────────────────────
