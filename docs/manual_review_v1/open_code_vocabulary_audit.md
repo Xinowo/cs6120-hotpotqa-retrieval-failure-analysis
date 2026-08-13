@@ -1,6 +1,6 @@
 ---
 status: draft
-last_updated: 2026-08-10
+last_updated: 2026-08-13
 ---
 
 # Provisional Open-Code Vocabulary Audit
@@ -3325,9 +3325,9 @@ switch.
 One figure in the working intake check written alongside this decision is corrected in the entry
 rather than in that document, which is untracked: it reports 18 effective names absent from
 sections 8 to 13 entirely, and the correct figure is 17. A snake_case scan does return 18, but
-section 9 carries `low_context_name_query` as a prose judgement line reading
-`判断 low-context name query 是否是独立机制`, which that scan missed. The name is still
-uncollected and still gains a collection line; only the absent-entirely claim was wrong.
+section 9 carries `low_context_name_query` in a prose judgement line asking whether it is an
+independent mechanism, which that scan missed. The name is still uncollected and still gains a
+collection line; only the absent-entirely claim was wrong.
 
 ### Inventory effect
 
@@ -3360,9 +3360,9 @@ uncollected and still gains a collection line; only the absent-entirely claim wa
   judgement line is removed.
 - Section 8A is the first section added to `taxonomy_todo.md` since 7A, and it follows 7A's
   numbering precedent so that sections 9 to 26 are not renumbered. Nine distinct names are
-  routed to it. Its heading verb is `收集…机制` rather than the `建立候选类别` every section
-  from 8 to 12 opens with, which is deliberate: the heading must not promise a category that
-  only the categories stage can grant.
+  routed to it. Its heading verb is to collect mechanisms rather than to establish candidate
+  categories, which is what every section from 8 to 12 opens with, and that is deliberate: the
+  heading must not promise a category that only the categories stage can grant.
 - **No triage item is settled.** D-061 is the first entry in the vocabulary-audit series D-040
   to D-061 that rules on no item of `vocabulary_audit_triage.md`, the twenty-one before it
   having settled twenty-one items between them. That file is therefore not edited, and its

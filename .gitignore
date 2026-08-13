@@ -1,6 +1,7 @@
-# Local-only docs (personal notes / already-distributed material / Chinese-language files).
-# All local-only docs now live under docs/Local/ (concepts, analysis, From_Professor,
-# Weekly_Progress_to_be_submitted, Plans/proposal.md, Plans/Xin_Implementation_Plan.md).
+# Local-only docs (personal notes / already-distributed material).
+# Most local-only docs live under docs/Local/ (concepts, analysis, From_Professor,
+# Weekly_Progress_to_be_submitted, Plans/proposal.md, Plans/Xin_Implementation_Plan.md);
+# the manual-review record keeps its own local-only set, listed further down.
 # Everything else under docs/ IS tracked and shared with Teammate:
 #   docs/Plans/ joint plan + scope + idea docs.
 # Note: Xin's own completion logs are kept local-only (docs/Completion_Log/Xin_*);
@@ -8,6 +9,31 @@
 docs/Local/
 docs/Completion_Log/Xin_*
 docs/specs/*.zh.md
+
+# Working documents of the manual-review v1 record. These are the author's own
+# in-progress material rather than part of the published record, so they are kept
+# locally and are not committed.
+#
+#   per_case_analysis/  the 19 per-unit dossiers and their index.
+#   taxonomy_todo.md    the full 26-section process specification, which this
+#                       compressed path did not run.
+#   tools/              the analysis tooling. It is one coupled unit that only
+#                       runs against the working record and the workspace's own
+#                       layout -- units.py imports recount.py, and check_landing.py
+#                       and make_tables.py are written against those documents --
+#                       so it cannot be committed piecemeal. It was already
+#                       described in docs/manual_review_v1/README.md as
+#                       provenance rather than an entry point.
+#   references/2026-08-05-parallel-failure-taxonomy-review-pipeline-design.md
+#                       a working pipeline design note.
+#
+# docs/manual_review_v1/README.md documents this exclusion for readers, and the
+# repository's own entry point for labels and counts remains
+# scripts/reporting/manual_review_category_counts.py, which needs none of these.
+docs/manual_review_v1/per_case_analysis/
+docs/manual_review_v1/taxonomy_todo.md
+docs/manual_review_v1/tools/
+docs/manual_review_v1/references/2026-08-05-parallel-failure-taxonomy-review-pipeline-design.md
 
 # Failure-review run directories (large intermediate products: details.jsonl
 # carries full paragraph text, plus generated failures_review.html). Code

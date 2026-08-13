@@ -1,6 +1,6 @@
 ---
 status: draft
-last_updated: 2026-08-12
+last_updated: 2026-08-13
 ---
 
 # Candidate Failure Taxonomy v0.1
@@ -1708,7 +1708,8 @@ each gain a sentence recording that Section 14 is now landed as D-065. **Three,*
 next-unused-decision-ID and append-only-range synchronization: `D-065` to `D-066` for the next
 ID, and `D-001` to `D-064` becoming `D-001` to `D-065` for the protected range. **Four,**
 handoff-state synchronization: the handoff header, the A.1 zero-context recovery point, the
-当前卡在哪 and 下一步计划 blocks, the commit-hash record, the allowed-uncommitted-work sentence
+current-blocker and next-step-plan blocks, the commit-hash record, the
+allowed-uncommitted-work sentence
 and the D-section progress lines that named Section 14 as not started. Because classes one, two
 and four carry new prose by authorization, the D-064 paragraph's negative control does not
 apply here and would wrongly reject this diff; the control that applies here is scope. Negative

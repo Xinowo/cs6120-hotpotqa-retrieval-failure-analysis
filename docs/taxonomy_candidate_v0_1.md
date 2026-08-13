@@ -863,9 +863,11 @@ These are the limitations a report citing this document must state.
 
 ## 13. Where the fuller record lives
 
-All of it is in this repository. This document carries what a reader needs in order
-to check a label against a definition; the files below carry the derivation behind
-every figure.
+This document carries what a reader needs in order to check a label against a
+definition; the files below carry the derivation behind every figure. All of them are
+in this repository except the two marked *held locally*, which are working documents
+kept off Git for the reasons given in `docs/manual_review_v1/README.md`, "What is held
+locally". Neither is needed to check any figure stated here.
 
 | Record | Path |
 |---|---|
@@ -873,9 +875,9 @@ every figure.
 | The append-only open-coding decision log, `D-0nn` | `docs/manual_review_v1/open_code_decision_log.md` |
 | The vocabulary audit and its triage table, `T-nn` | `docs/manual_review_v1/open_code_vocabulary_audit.md`, `docs/manual_review_v1/vocabulary_audit_triage.md` |
 | The secondary-descriptor registry | `docs/manual_review_v1/secondary_descriptor_registry.md` |
-| The 19 per-unit dossiers | `docs/manual_review_v1/per_case_analysis/` |
+| The 19 per-unit dossiers | `docs/manual_review_v1/per_case_analysis/` -- *held locally* |
 | The 30-unit evidence table, with both reviewers' verbatim notes | `results/annotations/manual_review_v1/case_memos_v2.csv` |
 | The implementation references the evidence rules cite | `docs/manual_review_v1/references/` |
-| The full process this compressed path did not run | `docs/manual_review_v1/taxonomy_todo.md` |
+| The full process this compressed path did not run | `docs/manual_review_v1/taxonomy_todo.md` -- *held locally* |
 | The compressed path's own account | `docs/manual_review_v1/express_closeout_v0_1.md` |
 | What each imported file is | `docs/manual_review_v1/README.md` |

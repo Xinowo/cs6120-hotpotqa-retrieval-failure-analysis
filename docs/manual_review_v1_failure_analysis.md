@@ -165,7 +165,10 @@ either method's limits; it is why the two units carry two different labels rathe
 than one shared explanation.
 
 **Where these two tables can be checked.** The dense side, rank by rank, is in
-`docs/manual_review_v1/per_case_analysis/dense_comparison_5a78b209554299148911f93e.md`.
+`docs/manual_review_v1/per_case_analysis/dense_comparison_5a78b209554299148911f93e.md`,
+which is one of the dossiers held locally rather than in Git; see
+`docs/manual_review_v1/README.md`, "What is held locally". The gold ranks it reports
+are also in the evidence table named at the end of this paragraph.
 The BM25 side has no dossier -- it is one of the 11 units without one -- so its
 mechanism and rank figures are in the decision log at
 `docs/manual_review_v1/open_code_decision_log.md`, entry D-010 for the mechanism and

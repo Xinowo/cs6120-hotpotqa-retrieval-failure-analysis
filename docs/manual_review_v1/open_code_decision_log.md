@@ -1,6 +1,6 @@
 ---
 status: draft
-last_updated: 2026-08-12
+last_updated: 2026-08-13
 ---
 
 # Provisional Open-Code Decision Log
@@ -7304,8 +7304,9 @@ Do not claim that the encoder maps `the game` to video-game semantics, even thou
   9-unit primary with its own primary-use contract from D-051 and D-052, as compound-rule
   material rather than as category candidates, which pre-empts more than it settles. The `8A`
   numbering follows the existing 7A precedent, so sections 9 to 26 are not renumbered. The
-  section's verb is deliberately `收集…机制` rather than sections 8 to 13's `建立候选类别`, so
-  that the heading itself does not promise a category, and the neutralizing preamble sits under
+  section's verb is deliberately to collect mechanisms rather than sections 8 to 13's to
+  establish candidate categories, so that the heading itself does not promise a category, and
+  the neutralizing preamble sits under
   the heading rather than only in this entry, because a later agent may enter `taxonomy_todo.md`
   at section 8A without rereading the decision log.
 - **The wording constraint this routing carries.** Neither the retrieval mechanism nor the
@@ -7337,7 +7338,7 @@ Do not claim that the encoder maps `the game` to video-game semantics, even thou
 - **A companion figure corrected.** The working intake check written alongside this decision
   reports 18 effective names absent from sections 8 to 13 entirely. The correct figure is 17. A
   snake_case scan of those sections does return 18, but `low_context_name_query` is present in
-  section 9 as the prose line `判断 low-context name query 是否是独立机制`, which that scan
+  section 9 in a prose line asking whether it is an independent mechanism, which that scan
   missed. It is a judgement line and not a collection line, so the name is still uncollected and
   still gains a collection line under Track B2; only the claim that it was absent entirely was
   wrong. Every other row of that check stands. The working document is not a tracked artifact
