@@ -1,0 +1,9 @@
+taxonomy_version,category,count,bm25_count,dense_count,denominator,sample_scope
+candidate_v0_1,bm25_minimal_preprocessing_score_distortion,10,10,0,30,manual_review_v1_calibration_batch
+candidate_v0_1,description_only_bridge_entity,4,0,4,30,manual_review_v1_calibration_batch
+candidate_v0_1,cross_passage_conjunction_unresolved,6,3,3,30,manual_review_v1_calibration_batch
+candidate_v0_1,near_neighbour_crowding_and_sense_drift,5,1,4,30,manual_review_v1_calibration_batch
+candidate_v0_1,dense_peripheral_passage_content_dilution,1,0,1,30,manual_review_v1_calibration_batch
+candidate_v0_1,evaluation_side_gold_chain_ambiguity,2,1,1,30,manual_review_v1_calibration_batch
+candidate_v0_1,unresolved,2,0,2,30,manual_review_v1_calibration_batch
+candidate_v0_1,TOTAL,30,15,15,30,manual_review_v1_calibration_batch
