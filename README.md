@@ -60,6 +60,63 @@ Same loop as above, but runs **dense retrieval and BM25 side by side** on the sa
 
 The first run downloads the embedding model (`sentence-transformers/all-MiniLM-L6-v2`, ~90MB), so it needs network access once; afterward it's cached locally.
 
+## Inspecting the original per-question corpus
+
+The formal 500-example experiments use the first 500 rows of the HotpotQA
+`validation` split, in dataset order; they are not a random sample. The project
+loader exposes each question's original `context` as `example.paragraphs`, where
+every paragraph has a `title` and the full paragraph `text` reconstructed from
+that context's sentence list.
+
+Look up an example by `example_id` (preferred because it is stable and unique),
+then print all of its original candidate paragraphs:
+
+```python
+from src.data_loader import load_examples
+
+examples = load_examples(split='validation', n=500)
+
+target_id = '5a8b57f25542995d1e6f1371'
+example = next(ex for ex in examples if ex.example_id == target_id)
+
+print('Example ID:', example.example_id)
+print('Question:', example.question)
+print('Gold titles:', sorted(example.gold_titles))
+print('Corpus size:', len(example.paragraphs))
+
+for index, paragraph in enumerate(example.paragraphs, start=1):
+    print(f'\n===== Corpus {index} =====')
+    print('Title:', paragraph.title)
+    print('Text:', paragraph.text)
+```
+
+If only the exact question text is known, replace the lookup with:
+
+```python
+target_question = 'Were Scott Derrickson and Ed Wood of the same nationality?'
+example = next(ex for ex in examples if ex.question == target_question)
+```
+
+Use `len(example.paragraphs)` rather than assuming every question has exactly
+10 candidates: the distractor configuration usually supplies 10, but some
+examples contain fewer. On the first run, `load_examples` downloads HotpotQA;
+later calls reuse the Hugging Face cache, so callers should not hard-code a
+machine-specific cache path.
+
+To inspect the untouched HotpotQA fields (including sentence boundaries and
+supporting-fact sentence indices), use the raw loader instead:
+
+```python
+from src.data_loader import load_raw_hotpotqa
+
+raw_examples = load_raw_hotpotqa(split='validation', n=500)
+raw_example = next(row for row in raw_examples if row['id'] == target_id)
+
+print(raw_example['context']['title'])
+print(raw_example['context']['sentences'])
+print(raw_example['supporting_facts'])
+```
+
 ## Running tests
 
 ```bash
