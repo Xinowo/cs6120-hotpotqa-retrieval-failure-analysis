@@ -55,8 +55,7 @@ Identifiers of the form `D-0nn` cite entries of the append-only decision log at
 `docs/manual_review_v1/open_code_decision_log.md`, and `T-nn` cites triage items in
 `docs/manual_review_v1/vocabulary_audit_triage.md`. Both are in this repository, as
 are the secondary-descriptor registry, the vocabulary audit and the 19 per-unit
-dossiers; `docs/manual_review_v1/README.md` lists every imported file with its
-digest.
+dossiers; `docs/manual_review_v1/README.md` says what each of them is.
 
 ## 2. Scope of the evidence base
 
@@ -871,4 +870,4 @@ every figure.
 | The implementation references the evidence rules cite | `docs/manual_review_v1/references/` |
 | The full process this compressed path did not run | `docs/manual_review_v1/taxonomy_todo.md` |
 | The compressed path's own account | `docs/manual_review_v1/express_closeout_v0_1.md` |
-| What each imported file is, with digests | `docs/manual_review_v1/README.md` |
+| What each imported file is | `docs/manual_review_v1/README.md` |
