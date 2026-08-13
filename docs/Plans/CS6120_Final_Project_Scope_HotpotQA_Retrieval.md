@@ -1,6 +1,9 @@
 ---
 status: active
-last_updated: 2026-07-29
+last_updated: 2026-07-31
+task_sync_design: DR-007
+task_sync_role: scope-timeline-mirror
+task_plan_revision: 2026-07-31-presentation-verification-complete
 ---
 
 # CS6120 Final Project Scope

@@ -1,6 +1,9 @@
 ---
 status: active
-last_updated: 2026-07-29
+last_updated: 2026-07-31
+task_sync_design: DR-007
+task_sync_role: schedule-authority
+task_plan_revision: 2026-07-31-presentation-verification-complete
 ---
 
 # CS6120 Final Project Weekly Todo Plan
@@ -643,6 +646,7 @@ The primary owner writes the first complete version and resolves review comments
 - Verify every qualitative example and ensure claims remain within the reviewed evidence.
 - If and only if the fine-tuning gate passes, complete the permitted hand-written extension work and its evaluation by 8/8.
 - Proofread Jiajun's sections for conceptual consistency with the research questions and findings.
+- After the 8/4 presentation, resolve proposed DR-008 and, only after design approval, coordinate the reranker run-configuration persistence fix as reproducibility plumbing. It must not change accepted results or delay the 8/10 complete-report checkpoint.
 
 ## Jiajun Tasks
 
@@ -667,6 +671,7 @@ The primary owner writes the first complete version and resolves review comments
 - Incorporate presentation feedback only when it improves correctness or clarity.
 - Run the Explanation Test together and resolve any topic that either member cannot yet explain.
 - Create a submission inventory covering report, code, data/result artifacts, README, demo, requirements, and AI disclosure.
+- Complete DR-008 only if its approved implementation and targeted verification fit after the presentation without displacing report work; otherwise record an explicit deferral rather than shipping an unreviewed provenance change.
 - Stop adding experiments and freeze report inputs by the end of 8/10.
 
 ## Daily Checkpoints
