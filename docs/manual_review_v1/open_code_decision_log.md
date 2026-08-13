@@ -7304,11 +7304,10 @@ Do not claim that the encoder maps `the game` to video-game semantics, even thou
   9-unit primary with its own primary-use contract from D-051 and D-052, as compound-rule
   material rather than as category candidates, which pre-empts more than it settles. The `8A`
   numbering follows the existing 7A precedent, so sections 9 to 26 are not renumbered. The
-  section's verb is deliberately to collect mechanisms rather than sections 8 to 13's to
-  establish candidate categories, so that the heading itself does not promise a category, and
-  the neutralizing preamble sits under
-  the heading rather than only in this entry, because a later agent may enter `taxonomy_todo.md`
-  at section 8A without rereading the decision log.
+  section's verb is deliberately `collect ... mechanisms` rather than sections 8 to 13's
+  `establish candidate categories`, so that the heading itself does not promise a category, and
+  the neutralizing preamble sits under the heading rather than only in this entry, because a
+  later agent may enter `taxonomy_todo.md` at section 8A without rereading the decision log.
 - **The wording constraint this routing carries.** Neither the retrieval mechanism nor the
   primary `verbatim_epithet_sense_drift` may be described as literal matching, exact-string
   matching, phrase matching or surface matching, in this entry or in sections 8 to 13. D-059
@@ -7338,8 +7337,8 @@ Do not claim that the encoder maps `the game` to video-game semantics, even thou
 - **A companion figure corrected.** The working intake check written alongside this decision
   reports 18 effective names absent from sections 8 to 13 entirely. The correct figure is 17. A
   snake_case scan of those sections does return 18, but `low_context_name_query` is present in
-  section 9 in a prose line asking whether it is an independent mechanism, which that scan
-  missed. It is a judgement line and not a collection line, so the name is still uncollected and
+  section 9 as the prose line `decide whether low-context name query is an independent
+  mechanism`, which that scan missed. It is a judgement line and not a collection line, so the name is still uncollected and
   still gains a collection line under Track B2; only the claim that it was absent entirely was
   wrong. Every other row of that check stands. The working document is not a tracked artifact
   and is not edited; the corrected figure is stated here.
@@ -8025,3 +8024,46 @@ Do not claim that the encoder maps `the game` to video-game semantics, even thou
   the landed synthesis
   `docs/Local/Synthesis/2026-08-12_sections_8_13_bounded_category_synthesis.md`; and
   `references/2026-07-27-manual-failure-review-course-protocol.md` sections 1 and 10.
+
+## D-066 - Render D-061's two quoted Chinese lines into English, under an owner override
+
+- **Date:** 2026-08-13
+- **Status:** active
+- **Decision:** Two passages inside the already-landed D-061 are rewritten in place, which the
+  header of this log otherwise forbids. In the Section 8A paragraph, the two quoted section verbs
+  now read `collect ... mechanisms` and `establish candidate categories`. In the companion-figure
+  paragraph, the quoted Section 9 prose line now reads `decide whether low-context name query is
+  an independent mechanism`. All three were quotations of Chinese wording authored in
+  `taxonomy_todo.md`; all three are now the English of that same wording, still quoted as lines
+  of that document. Nothing else in D-061 changes, and this entry supersedes no ruling: D-061's
+  routing, its wording constraint, its evidence, its corrected figure of 17 and its registry
+  effect of none all stand exactly as they landed.
+- **Authority.** Xin's explicit owner decision of 2026-08-13, recorded in the owner-decision
+  history of the local design record for removing Chinese-language documents from the tracked
+  repository. It waives this log's append-only rule for these two passages only. The rule stands
+  for every other entry, for any later edit to these two, and for any future migration; a waiver
+  is required each time and cannot be inferred from this one.
+- **Rationale:** The tracked repository is shared with a teammate and forms part of a course
+  submission, and it carries no Chinese-language content. Three options existed. Leaving the
+  quotations as they were keeps the entry exact but leaves Chinese in a tracked file. Appending an
+  English translation while leaving the quotations in place preserves the append-only property
+  perfectly but removes nothing, since the original stays in D-061. Rewriting in place removes
+  it, at the cost of a landed entry no longer reading exactly as it landed. Xin chose the third
+  and authorized it explicitly, which is the part that matters here: the same substitution was
+  already made in commit `a28b769` with no entry and no override, and an independent acceptance
+  review rejected that as an evidence-integrity violation, its round 1 blocking finding F-01 of
+  2026-08-13. What that review refused was a silent rewrite of landed evidence, not a
+  translation. This entry is what makes the rewrite legible.
+- **Where the prior wording survives.** The Chinese original is deliberately not reproduced here,
+  because reproducing it would defeat the purpose of the change. It is preserved unmodified in
+  two places. First, `taxonomy_todo.md` itself, which is local-only and was not edited: the
+  Section 8 and Section 8A headings, and one checklist line in Section 9's comparison group.
+  Second, this file's own Git history, where the pre-rewrite bytes are this file's blob at commit
+  `fb0a058` and at every earlier commit carrying it, so a reader holding only the repository can
+  still recover exactly how D-061 landed.
+- **Scope of the substitution.** Two passages, three quoted strings, one file. No other entry, no
+  other document, no ignore rule, no test, no generated artifact, no count and no figure is
+  touched by this decision.
+- **Registry effect:** none. No entry's definition, inclusion rule, exclusion rule or
+  affected-units list changes, no entry is created or removed, and the registry stays at 26
+  adopted descriptors.
