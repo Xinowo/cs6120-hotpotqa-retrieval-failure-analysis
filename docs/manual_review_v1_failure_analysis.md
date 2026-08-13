@@ -62,12 +62,28 @@ is a measurement finding, not a claim that the questions are defective -- no
 question-quality descriptor is used anywhere in this taxonomy.
 
 **5. Two of the 30 are `unresolved`, and that is a result rather than a gap.** Both
-were fully reviewed. Both carry a plausible crowding story, and both fail a
-mandatory clause of the crowding category: on one, no intervention of any kind was
-measured, and the owner decision records that the ranking does not establish the
-cause; on the other, the rule that picks out the competing family also selects one of
-the required passages, so the family cannot be removed even in principle. A rule set
-that had to guess in order to avoid `unresolved` would be the incomplete one.
+were fully reviewed, both carry a plausible crowding story, and each fails a different
+mandatory clause of the crowding category.
+
+On `5a76387d554299109176e6ba|dense`, "Who was born first Am Rong or Ava DuVernay?",
+the competing family is stated as passage content -- generic person and birth-related
+material -- but **no intervention of any kind was measured** on the unit, and the
+owner decision records that the ranking does not establish which component caused the
+ordering. The measured-intervention clause fails. What the evidence cannot separate is
+named in the unit's own memo: weak entity representations against a general limitation
+of short, name-dominated comparison queries.
+
+On `5a7d19d85542995ed0d165e8|dense`, "The Tennessee Volunteers football team plays as a
+member for a conference in what city?", the failure is stronger than an unrun
+measurement. **The question names no season**, so any content rule that picks out the
+competing family of Tennessee Volunteers season pages also selects the annotated 1984
+season page, which is one of the required passages. The family therefore cannot be
+removed even in principle and the claim is untestable by any intervention, so the
+clause is not merely unchecked but undischargeable as written.
+
+The difference matters: the first is a gap that one measurement could close, the second
+is a gap that no measurement on this unit can close. A rule set that had to guess in
+order to avoid `unresolved` would be the incomplete one.
 
 ## 2. One question, two retrievers, two different mechanisms
 

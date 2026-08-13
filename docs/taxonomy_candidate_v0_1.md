@@ -830,6 +830,14 @@ readings rather than a plain agreement. Where a unit's category outcome is
 which is the protocol's own rule that the outcome is one resolved category or one
 `unresolved` unit and never two votes.
 
+**The file carries no reason column**, because the protocol fixes its five columns and
+a sixth may not be added. So a row reading `unresolved` says only that no category's
+include rules were reached. **Which clause failed, on which unit, is in section 7
+above**, and the landed per-unit wording is in
+`docs/manual_review_v1/candidate_taxonomy_v0_1.md` section 18 and in the decision log
+entry that ruled it. Neither `unresolved` row should be read as an unreviewed unit:
+both were reviewed, one of them by both reviewers.
+
 ## 12. Limitations of this document
 
 These are the limitations a report citing this document must state.
