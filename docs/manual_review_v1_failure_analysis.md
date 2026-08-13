@@ -165,13 +165,15 @@ either method's limits; it is why the two units carry two different labels rathe
 than one shared explanation.
 
 **Where these two tables can be checked.** The dense side, rank by rank, is in
-`docs/manual_review_v1/per_case_analysis/dense_comparison_5a78b209554299148911f93e.md`,
-which is one of the dossiers held locally rather than in Git; see
-`docs/manual_review_v1/README.md`, "What is held locally". The gold ranks it reports
-are also in the evidence table named at the end of this paragraph.
+`docs/manual_review_v1/open_code_decision_log.md`, entry D-027, which carries every
+passage above the two golds with its score -- from `Reed A. Albee` at 1 / 0.630886 down
+to `Jeffrey Stanley` at 7 / 0.501423 -- the rank-5 cutoff score of 0.538556, and the
+golds themselves at 8 / 0.434342 and 9 / 0.432454. The per-unit dossier
+`docs/manual_review_v1/per_case_analysis/dense_comparison_5a78b209554299148911f93e.md`
+reports the same figures, but it is one of the dossiers held locally rather than in
+Git; see `docs/manual_review_v1/README.md`, "What is held locally".
 The BM25 side has no dossier -- it is one of the 11 units without one -- so its
-mechanism and rank figures are in the decision log at
-`docs/manual_review_v1/open_code_decision_log.md`, entry D-010 for the mechanism and
+mechanism and rank figures are in the same log, entry D-010 for the mechanism and
 D-027 for `Edward Albee` at 6 / 19.520331 and `J. M. Barrie` at 640 / 4.908864, the
 latter establishing that the stored `not_in_top50` is a real rank of 640 of 4,937 and
 not absence from the corpus. Both units' review notes, gold ranks and open codes are
