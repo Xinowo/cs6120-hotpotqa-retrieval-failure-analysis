@@ -1,0 +1,30 @@
+{
+  "batch_id": "manual_review_v1",
+  "recorded_at": "2026-07-31",
+  "hash_algorithm": "SHA-256",
+  "unique_analytical_units": 30,
+  "review_actions": 34,
+  "overlap_units": 4,
+  "sources": [
+    {
+      "path": "manual_review_v1/xin_notes.csv",
+      "rows": 17,
+      "sha256": "73014B9105818CE315D9BC021EAB8F51983AE4B4EA85E080314126C64312D6FB"
+    },
+    {
+      "path": "manual_review_v1/jiajun_notes.csv",
+      "rows": 17,
+      "sha256": "1BCF09F463BA579827B57A87F213487D375F6187D00CD0FC9E93F43EE91F51D8"
+    },
+    {
+      "path": "manual_review_v1/xin_cases.json",
+      "assigned_cases": 17,
+      "sha256": "DB7EF6CCC21EED1C2882B7F9E4F737BD3A0B6FE93345A3278B5D6CD51546E4D8"
+    },
+    {
+      "path": "manual_review_v1/jiajun_cases.json",
+      "assigned_cases": 17,
+      "sha256": "E9CDB4457DA12471C9E0332DB5AB54849E149D4B639BA0DCCD35F6DE9384379D"
+    }
+  ]
+}

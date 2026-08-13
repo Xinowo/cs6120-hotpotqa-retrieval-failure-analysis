@@ -148,7 +148,17 @@ That BM25 placed one gold at 6 while Dense placed both at 8 and 9 says nothing a
 either method's limits; it is why the two units carry two different labels rather
 than one shared explanation.
 
-*Caliber note.* The read-only source JSON holds the Albee dense score as
+**Where these two tables can be checked.** The dense side, rank by rank, is in
+`docs/manual_review_v1/per_case_analysis/dense_comparison_5a78b209554299148911f93e.md`.
+The BM25 side has no dossier -- it is one of the 11 units without one -- so its
+mechanism and rank figures are in the decision log at
+`docs/manual_review_v1/open_code_decision_log.md`, entry D-010 for the mechanism and
+D-027 for `Edward Albee` at 6 / 19.520331 and `J. M. Barrie` at 640 / 4.908864, the
+latter establishing that the stored `not_in_top50` is a real rank of 640 of 4,937 and
+not absence from the corpus. Both units' review notes, gold ranks and open codes are
+in `results/annotations/manual_review_v1/case_memos_v2.csv`.
+
+*Caliber note.* The retrieval output holds the Albee dense score as
 `0.43245452642440796`, which rounds at six decimals to `0.432455`; the landed
 decision entry and the per-unit dossier both write `0.432454`, and the landed form is
 the one used above.
@@ -291,8 +301,9 @@ all. The absence of primary uses on a backend is never a ground for it.
   in particular is untested.
 - **The sample is a calibration batch, not a held-out set.** It is 30 strict Any@5
   failures drawn from one run; it estimates no frequency and validates no taxonomy.
-- **Twelve triage items remain open** in the external vocabulary audit, including two
-  placement questions and three category-boundary questions.
+- **Twelve triage items remain open** in
+  `docs/manual_review_v1/vocabulary_audit_triage.md`, including two placement
+  questions and three category-boundary questions.
 
 ## 8. What would change a conclusion
 

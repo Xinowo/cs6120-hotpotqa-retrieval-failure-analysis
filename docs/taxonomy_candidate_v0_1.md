@@ -11,9 +11,11 @@ their evidence requirements and their boundaries, as used by
 
 ## 0. What this document is, and what it is not
 
-**It is** a transcription into this repository of category definitions that were
-authored and landed in the separate `failure_review` working repository, so that
-the labels shipped here have a definition a reader can check.
+**It is** a compression of the full candidate-taxonomy document, which is in this
+repository at `docs/manual_review_v1/candidate_taxonomy_v0_1.md`. That document is
+1,600 lines written for the analysis workspace; this one carries the same categories
+in the form a reader of the report needs. Every claim below can be checked against
+the imported record without leaving this repository.
 
 **It is not `taxonomy_v1`.** Section 8 of
 `docs/specs/2026-07-27-manual-failure-review-course-protocol.md` reserves that name
@@ -34,11 +36,10 @@ the figures are reproduced here so they can be cited, not re-derived here.
 
 The category definitions, the required evidence, the inclusion and exclusion rules,
 the tie-breaks, the examples, the counterexamples and the capability matrix are
-human-authored research content. They were written and reviewed in the
-`failure_review` working repository, in
-`manual_review_v1/analysis/candidate_taxonomy_v0_1.md` sections 6 and 7, and landed
-there as decision entry **D-065** after three independent acceptance reviews of the
-document and two of the landing.
+human-authored research content. They were written and reviewed in
+`docs/manual_review_v1/candidate_taxonomy_v0_1.md` sections 6 and 7, and landed as
+decision entry **D-065** after three independent acceptance reviews of the document
+and two of the landing.
 
 Four landed decision entries govern what may be said with these categories, and are
 cited by identifier throughout:
@@ -50,9 +51,12 @@ cited by identifier throughout:
 | **D-064** | The minimum-evidence correction: which categories carry a named evidence gap, and which of those gaps is an actionable request |
 | **D-065** | The landing of the six category blocks and the capability matrix transcribed below |
 
-The decision log itself, the vocabulary audit and the per-unit dossiers stay in the
-`failure_review` working repository and are outside this repository. Identifiers of
-the form `D-0nn` and `T-nn` refer to entries and triage items there.
+Identifiers of the form `D-0nn` cite entries of the append-only decision log at
+`docs/manual_review_v1/open_code_decision_log.md`, and `T-nn` cites triage items in
+`docs/manual_review_v1/vocabulary_audit_triage.md`. Both are in this repository, as
+are the secondary-descriptor registry, the vocabulary audit and the 19 per-unit
+dossiers; `docs/manual_review_v1/README.md` lists every imported file with its
+digest.
 
 ## 2. Scope of the evidence base
 
@@ -843,18 +847,28 @@ These are the limitations a report citing this document must state.
   mechanism is enumerated rather than measured as a rank effect.
 - **K4 is the weakest-controlled category** and the one most likely to change at a
   freeze gate; its decisive counterfactual is `not_run` at category level.
-- **Twelve triage items remain open** in the external vocabulary audit, including the
-  placement questions T-10 and T-40 and the boundary questions T-08, T-51 and T-63
-  cited above.
+- **Twelve triage items remain open** in
+  `docs/manual_review_v1/vocabulary_audit_triage.md`, including the placement
+  questions T-10 and T-40 and the boundary questions T-08, T-51 and T-63 cited above.
 - **One judgement call is exposed rather than hidden**, in K4's known limitations:
   declining the residual reading on the single BM25 member routes it to `unresolved`
   and changes that category's counts, though no boundary value and no claim strength.
 
 ## 13. Where the fuller record lives
 
-The full candidate-taxonomy document, the append-only open-coding decision log, the
-secondary-descriptor registry, the vocabulary audit with its triage table and the 19
-per-unit dossiers are in the separate `failure_review` working repository and are not
-mirrored here. This document carries what a reader of this repository needs in order
-to check a label against a definition; it does not attempt to carry the derivation
-behind every figure.
+All of it is in this repository. This document carries what a reader needs in order
+to check a label against a definition; the files below carry the derivation behind
+every figure.
+
+| Record | Path |
+|---|---|
+| The full candidate taxonomy, 1,600 lines | `docs/manual_review_v1/candidate_taxonomy_v0_1.md` |
+| The append-only open-coding decision log, `D-0nn` | `docs/manual_review_v1/open_code_decision_log.md` |
+| The vocabulary audit and its triage table, `T-nn` | `docs/manual_review_v1/open_code_vocabulary_audit.md`, `docs/manual_review_v1/vocabulary_audit_triage.md` |
+| The secondary-descriptor registry | `docs/manual_review_v1/secondary_descriptor_registry.md` |
+| The 19 per-unit dossiers | `docs/manual_review_v1/per_case_analysis/` |
+| The 30-unit evidence table, with both reviewers' verbatim notes | `results/annotations/manual_review_v1/case_memos_v2.csv` |
+| The implementation references the evidence rules cite | `docs/manual_review_v1/references/` |
+| The full process this compressed path did not run | `docs/manual_review_v1/taxonomy_todo.md` |
+| The compressed path's own account | `docs/manual_review_v1/express_closeout_v0_1.md` |
+| What each imported file is, with digests | `docs/manual_review_v1/README.md` |

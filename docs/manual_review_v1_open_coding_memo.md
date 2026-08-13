@@ -85,9 +85,9 @@ Five artifact states exist and may not be collapsed into one another:
 
 | State | Where it lives | Status |
 |---|---|---|
-| Raw notes, retained verbatim | `xin_notes_v2.csv`, `jiajun_notes.csv`, and the per-unit note columns of the analysis workbook | Read-only source. Never rewritten, never paraphrased into evidence |
-| Provisional open codes | the workbook's `primary_open_code` and `secondary_open_codes` | Jointly reviewed but provisional comparison handles, not categories |
-| Legacy routing hint | the workbook's `candidate_category` | 29 cells mirror the then-current primary and 1 is blank. **Not** a candidate mapping and not evidence that a taxonomy exists. It may not prefill any mapping |
+| Raw notes, retained verbatim | the `note_xin`, `note_jiajun` and `joint_review_notes` columns of `results/annotations/manual_review_v1/case_memos_v2.csv`, exported by the reviewers as `<reviewer>_notes.csv` | Read-only source. Never rewritten, never paraphrased into evidence |
+| Provisional open codes | that file's `primary_open_code` and `secondary_open_codes` | Jointly reviewed but provisional comparison handles, not categories |
+| Legacy routing hint | that file's `candidate_category` | 29 cells mirror the then-current primary and 1 is blank. **Not** a candidate mapping and not evidence that a taxonomy exists. It may not prefill any mapping |
 | Candidate categories | `docs/taxonomy_candidate_v0_1.md` | Provisional categories with explicit boundaries; not final labels |
 | Final labels | `results/annotations/manual_review_v1/final_labels.csv` | One label per unique unit |
 
@@ -171,9 +171,13 @@ each constrains the report rather than the data.
 | The gold-targeted diagnostic ruling | An intervention that adds no text but requires knowing which passage is gold is admissible for a mechanism and is **never** a deployable repair, so it can never license an implementation-level conclusion |
 | The minimum-evidence correction | Exactly two named evidence gaps exist, both under one category, and exactly one of them is an actionable request |
 
-The append-only decision log holding these entries in full, with their per-unit
-evidence, stays in the separate `failure_review` working repository and is not
-mirrored here; entries are cited there as `D-0nn` and open triage items as `T-nn`.
+Each of these is one entry of the append-only decision log at
+`docs/manual_review_v1/open_code_decision_log.md`, which holds them in full with
+their per-unit evidence; entries are cited as `D-0nn` and open triage items as
+`T-nn`, the latter in `docs/manual_review_v1/vocabulary_audit_triage.md`. In order,
+the rows above are D-006, D-007, D-008, D-003 with D-010, D-062, D-062's
+bounded-synthesis clause, D-041 with D-044 to D-047, D-063's ruling on the
+gold-targeted class, and D-064.
 
 ## 6. The two `unresolved` units
 
