@@ -119,8 +119,13 @@ Exit code is 0 only when all three sections printed.
 2. Every number printed in §4.1 is present in `results/main_results_v1.csv`. A
    hard-coded figure that no longer matches the CSV must fail this test.
 3. Gold marking in §4.2 agrees with the selected row's `bm25_hit` / `dense_hit`
-   cells: a marked gold title in the shown top-`k` implies the corresponding hit
-   cell is 1, and no marked gold title implies it is 0.
+   cells. The criterion these rows were scored under is full evidence, so a hit
+   cell of 1 is the statement that *every* gold title is inside the cutoff: the
+   marked titles must equal the row's gold titles if and only if that cell is 1.
+   A marked title on its own does not imply a hit — one of two gold titles
+   inside the cutoff is a marked title on a row whose hit cell is 0, which is
+   the case for 131 of the 320 retriever-units among this file's `dense_only`
+   rows — every row carries exactly two gold titles.
 4. A missing input file produces a non-zero exit and an error naming that file,
    and prints no partial walkthrough.
 5. Selection is deterministic: two invocations select the same three example_ids.

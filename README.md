@@ -4,7 +4,7 @@ A controlled comparison of BM25 (lexical), dense (embedding-based), and cross-en
 
 Status -- **research and result artifacts are complete**: all three retrieval stages ran over the first 500 HotpotQA validation examples in both corpus settings, with Any/Full/Partial Evidence Recall and MRR reported, and the reranker rescue/damage analysis plus the v1 manual failure review (30 hand-labelled units, candidate taxonomy v0.1) are landed.
 
-Still open, and not to be read as finished: the written report; `demo.py`, which does not exist yet; the [AI Usage Declaration](docs/AI_Usage_Declaration.md), which is still marked `status: draft` and holds one unresolved placeholder; and the clean-environment reproducibility check, submission inventory, and packaging pass.
+Still open, and not to be read as finished: the written report; the [AI Usage Declaration](docs/AI_Usage_Declaration.md), which is still marked `status: draft` and holds one unresolved placeholder; and the clean-environment reproducibility check, submission inventory, and packaging pass.
 
 One open item is a decision rather than a deliverable: the optional **fine-tuning extension** -- contrastively fine-tuning the dense encoder and re-evaluating per failure category -- has a joint go/no-go gate that the plan schedules for 8/5 and requires to be recorded either way. No such decision is recorded anywhere in this repository, so the gate is unresolved rather than settled. The extension is off by default and nothing here implements it, but an absent implementation is not a recorded no-go; that decision remains with Xin and Jiajun.
 
@@ -19,10 +19,21 @@ pip install -r requirements.txt
 
 Requires Python 3.10+. `datasets` will download HotpotQA from Hugging Face on first run (~600MB), and the dense retriever downloads `all-MiniLM-L6-v2` (~90MB), so the first run needs an internet connection; afterward both are cached locally.
 
+## Demo
+
+```bash
+python demo.py
+```
+
+One command, needing neither a network connection nor a GPU: `demo.py` prints the project's finding from the result CSVs already in the checkout. Three sections -- the headline BM25 / dense / dense + rerank table, one question BM25 misses and dense finds with the top 5 titles each retrieved, and one question the reranker rescues alongside one it damages.
+
+It is a presentation layer, so every number it prints is read from a cell of an accepted result file rather than recomputed: it defines no metric and runs no retrieval. Its contract is [docs/specs/2026-08-14-offline-demo.md](docs/specs/2026-08-14-offline-demo.md).
+
 ## Project structure
 
 ```text
 hotpotqa-retrieval/
+  demo.py                     # offline walkthrough of the accepted results (see Demo above)
   src/
     data_loader.py            # loads HotpotQA, builds per-question and pooled corpora + gold titles
     retrievers.py             # BM25Retriever (lexical baseline)

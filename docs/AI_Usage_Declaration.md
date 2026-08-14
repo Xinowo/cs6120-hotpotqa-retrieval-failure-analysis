@@ -1,6 +1,6 @@
 ---
 status: draft
-last_updated: 2026-08-13
+last_updated: 2026-08-14
 ---
 
 # AI Usage Declaration
@@ -53,7 +53,9 @@ sessions, then reviewed and, where needed, corrected by hand.
 - Review and report builders: `build_failure_report.py`, `build_manual_review_batch.py`, `manual_review_page.py`
 - `scripts/reporting/`: `bm25_failure_shortlist.py`, `build_gold_matching_audit.py`, `build_gold_rank_patterns.py`, `disagreement_cases.py`, `formal_result_inputs.py`, `manual_review_category_counts.py`, `plot_rescue_damage.py`, `rerank_rescue_damage_cases.py`, `rescue_damage.py`, `summarize_results.py`, `__init__.py`
 
-**Tests** — every file in `tests/` was agent-generated *except* `tests/test_evaluator.py` (hand-written, §4) and `tests/test_data_loader.py` (Jiajun's baseline, covered by his declaration in §7).
+**Demonstration script** — `demo.py` (whole file: `read_input`, `select_first`, `split_titles`, `parse_rank_map`, `rank_label`, `format_table`, `mark_gold`, `print_headline_comparison`, `print_disagreement`, `print_rank_transition`, `print_rescue_and_damage`, `run`, `main`) is agent-generated infrastructure around already-built components. It reads three accepted result CSVs and prints them; it defines no metric, assigns no failure category, and makes no research claim beyond restating the criterion `src/evaluator.py` already defines. Its contract is `docs/specs/2026-08-14-offline-demo.md`. The Weekly Todo Plan assigns this deliverable to Jiajun; Xin took ownership of it on 2026-08-14 and declares it here.
+
+**Tests** — every file in `tests/` was agent-generated *except* `tests/test_evaluator.py` (hand-written, §4) and `tests/test_data_loader.py` (Jiajun's baseline, covered by his declaration in §7). This includes `tests/test_demo.py`, which guards the demonstration script above.
 
 **Other** — `README.md`, `requirements.txt`, the specification and design documents under `docs/`, and the repository's local tooling.
 
