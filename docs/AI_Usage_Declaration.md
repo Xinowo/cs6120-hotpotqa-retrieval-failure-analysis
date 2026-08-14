@@ -14,7 +14,7 @@ Xin Wang, Jiajun Fang
 |---|---|---|---|
 | Xin Wang | Claude Code (Claude Opus 5) | 2026-07-07 to 2026-08-13 | Interactive coding-agent sessions inside the project repository |
 | Xin Wang | OpenAI Codex | 2026-07-25 to 2026-08-13 | Interactive coding-agent sessions; also used as an independent reviewer of changes the other agent had made |
-| Jiajun Fang | *[to be completed by Jiajun before submission]* | | |
+| Jiajun Fang | Claude (Anthropic) | 2026-07-07 to 2026-08-13 | Chat-based help: generated reporting-script infrastructure that was copied into the repo and run locally; conceptual explanations; review of hand-written code; proofreading|
 
 Xin used two agents deliberately rather than one, so that neither agent was the
 only reader of its own output: work produced in a Claude Code session was
@@ -147,3 +147,83 @@ including `src/data_loader.py`, `src/retrievers.py`,
 `scripts/run_week1_debug.py`, `tests/test_data_loader.py`, and the original
 `src/evaluator.py` metric implementations; and, if he used a coding agent, a
 session-level record of prompts and scope in the form used in §6.]*
+
+**Tools.** Claude (Anthropic), used through the claude.ai / Claude app chat
+interface. Code produced in chat was copied into the repository and run and
+checked locally; this is a different modality from the in-repo coding agents in
+§1.
+
+**Purposes used** (mapping to the five in §2):
+
+- *Code generation (supporting infrastructure).* The plumbing of three
+  reporting/analysis scripts — see the file list below. Generated in chat,
+  then pasted in, run, and checked by hand.
+- *Debugging.* Environment and tooling help only: resolving Git
+  working-directory, merge-conflict, and pull-before-push issues during
+  commits. No product-code logic was debugged by the tool.
+- *Conceptual help.* Explanations of the evidence-coverage metrics, gold
+  evidence, bridge-vs-comparison multi-hop structure, BM25 scoring, and the
+  rescue/damage distinction. Used to check my own understanding and to inform
+  my slides; no explanation text was carried into the report as research
+  content.
+- *Code review.* Claude reviewed my hand-written `summarize_rescue_damage()`
+  counting function against the specification and verified its 21-row output by
+  an independent recomputation; the output was confirmed correct.
+- *Writing assistance.* Structural advice and proofreading for my slides and
+  report sections, reference flowchart diagrams that I rebuilt myself in the
+  slides, and document-assembly help inserting the finished figures into the
+  report file. Never used to produce research content: no finding,
+  interpretation, or limitation, and no report or slide prose, was written by
+  an AI tool.
+
+**Files and functions that received AI assistance.**
+
+- `scripts/reporting/rescue_damage.py` — agent-generated plumbing
+  (`load_and_validate_inputs`, `build_paired_frame`, `validate_output_schema`,
+  `validate_summary_consistency`, `oracle_check`, `write_rescue_damage_csv`,
+  CLI). The counting core `summarize_rescue_damage()` is hand-written by me
+  (see §4).
+- `scripts/reporting/disagreement_cases.py` — agent-generated; the
+  disagreement rule (criterion / cutoff / setting) was my choice.
+- `scripts/reporting/bm25_failure_shortlist.py` — agent-generated
+  candidate-surfacing plumbing; the categories it emits are provisional
+  candidates only, and the failure categorization and write-up are mine.
+- Report document assembly — insertion of Figures 1–4 into the report `.docx`
+  (formatting only, no content authored).
+- [Jiajun: declare AI involvement, if any, in your Week 1–2 files —
+  `src/data_loader.py`, `src/retrievers.py`, `scripts/run_week1_debug.py`,
+  `tests/test_data_loader.py`, and the original `src/evaluator.py` metric
+  implementations. Per §4 the metric logic is hand-written; state honestly
+  whether any AI touched the surrounding non-metric code.]
+
+**Hand-written by me, without AI** (cross-reference §4): the evaluator metric
+logic (`any_evidence_recall_at_k`, `full_evidence_recall_at_k`,
+`partial_evidence_recall_at_k`, `mrr_for_example`, `evaluate_example`,
+`aggregate_results`), `build_pooled_corpus`, and the rescue/damage counting
+core `summarize_rescue_damage()`. No agent produced a metric or counting
+definition.
+
+My AI usage was through Claude's chat interface (claude.ai / Claude app), so the
+conversation history is itself the session record. Unlike the in-repo coding
+agents in §6, code was produced in chat and then pasted into the repository and
+run and checked locally. I did not log verbatim prompts in real time, so the
+scope below is summarized per topic by week rather than quoted; weeks are
+approximate, inferred from the chat history rather than from precise timestamps.
+
+### Session-level record (Jiajun Fang)
+ 
+My AI usage was through Claude's chat interface (claude.ai / Claude app): code
+was produced in chat, then pasted into the repository and run and checked
+locally. Verbatim prompts were not logged in real time, so scope is summarized
+by week; week boundaries are approximate, inferred from the chat history.
+ 
+| Week | Sessions | Tool | What the sessions covered |
+|---|---|---|---|
+| Weeks 1-2 (7/7-7/20) | Chat history is the record | Claude (chat) | Baseline work declared in §3/§7 (data loader, BM25, evaluator metrics); metric logic hand-written, no AI-generated definitions |
+| Week 3 (~7/21-7/29) | Chat history is the record | Claude (chat) | `rescue_damage.py` plumbing (I hand-wrote the counting core), `disagreement_cases.py`, `bm25_failure_shortlist.py`; independent review of my counting core; version-control debugging |
+| Week 4 (~7/29-8/4) | Chat history is the record | Claude (chat) | Slide prep: metric/BM25 explanations, wording and structure proofreading, reference flowchart figures I rebuilt myself, and the main-results table computed from saved CSVs |
+| Week 5 (~8/5-8/13) | Chat history is the record | Claude (chat) | Report section skeletons (prose written by me), figure insertion into the report document (formatting only), and this declaration |
+ 
+No research content -- no finding, interpretation, limitation, or report/slide
+prose -- was AI-written. Where exact prompt wording is unavailable it is
+summarized rather than reconstructed, consistent with §6.
