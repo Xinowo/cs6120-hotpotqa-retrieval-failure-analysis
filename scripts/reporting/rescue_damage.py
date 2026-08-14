@@ -3,6 +3,7 @@ rescue_damage.py   ->  place at  scripts/reporting/rescue_damage.py
 
 Reranker rescue / damage summary.
 Spec: docs/specs/2026-07-26-reranker-rescue-damage.md
+Shared input contract: docs/specs/2026-07-27-bm25-dense-reporting-contracts.md
 Inputs:  results/dense_results.csv (stage 1), results/rerank_results.csv (stage 2)
 Output:  results/rerank_rescue_damage.csv  (frozen 17-col / 21-row schema, §9)
 

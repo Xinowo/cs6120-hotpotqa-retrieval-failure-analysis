@@ -1,10 +1,17 @@
 """
 summarize_results.py
 
+Spec:    docs/specs/2026-07-15-results-csv-schema.md
+
 Aggregation-only helper: read the formal long-format result CSVs
 (results/bm25_results.csv, results/dense_results.csv, and
 results/rerank_results.csv, which all share src.results_schema.RESULT_COLUMNS)
 and reduce them to a per-(method, setting) summary table.
+
+The column set this script requires, the K policy that leaves some cells
+uncomputed, and the rule that a mean of reciprocal_rank_at_K is reported as
+MRR@K are all frozen by that specification (its sections on the column table
+and on aggregation). Nothing here redefines them.
 
 This script computes group means of columns that already exist in the input
 CSVs; it defines no metrics of its own. Per the project AI-use boundary, metric

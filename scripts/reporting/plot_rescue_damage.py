@@ -3,6 +3,9 @@ plot_rescue_damage.py   ->  place at  scripts/reporting/plot_rescue_damage.py
 
 Render the frozen rescue/damage summary as two slide-ready figures.
 
+Aggregate contract: docs/specs/2026-07-26-reranker-rescue-damage.md
+Cases contract:     docs/specs/2026-08-12-rerank-rescue-damage-cases.md
+
 Inputs:  results/rerank_rescue_damage.csv        aggregate summary, frozen
                                                 17 columns / 21 rows
                                                 (scripts/reporting/rescue_damage.py)

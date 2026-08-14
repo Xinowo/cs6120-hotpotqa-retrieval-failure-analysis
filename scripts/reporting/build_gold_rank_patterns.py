@@ -12,6 +12,8 @@ Generate the standalone, pooled-only gold-rank pattern CSV for one run:
 
 Authoritative design:
     docs/specs/2026-07-26-hotpotqa_gold_rank_pattern_partition_spec.md  (section 10)
+Input run-directory contract:
+    docs/specs/2026-07-12-failure-review-pipeline-design.md  (section 5.1)
 
 Design principle (same as the failure-review generator): Python classifies from
 the evaluator's already-precomputed gold_ranks; this script recomputes no metric
