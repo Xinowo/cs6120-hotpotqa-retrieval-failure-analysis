@@ -12,8 +12,12 @@ than omitted.
 
 - Course: CS6120, final project, due 2026-08-14
 - Team: Xin Wang, Jiajun (two members)
-- Repository baseline for this inventory: `9bff6cd` on `main`, in sync with
-  `origin/main`
+- Repository baseline for this inventory: the `main` commit the uploaded
+  package was cut from, which `SUBMISSION_NOTE.txt` names by hash. This
+  document ships inside that package, so it cannot state its own commit; the
+  note is the authority. §7.1 requires the tree to be clean and in sync with
+  `origin/main` at that commit. Hashes written below name past measurements
+  and are deliberately not updated to mean "current".
 - Governing schedule: `docs/Plans/CS6120_Final_Project_Weekly_Todo_Plan.md`,
   "Week 5 Exit Criteria" and "Final Submission Checklist"
 
@@ -23,44 +27,77 @@ Three things leave this project:
 
 | # | What | Where it goes | Who |
 |---|---|---|---|
-| 1 | The final report, as a rendered file | Canvas upload | Jiajun uploads after both approve |
+| 1 | The final report, as a rendered file | uploaded to Canvas on its own, **and** carried at the top level of the package in row 3 | Jiajun uploads after both approve |
 | 2 | The repository, as a link inside the report | the report's own text | — |
-| 3 | A frozen archive of the repository at the submitted commit | Canvas upload alongside the report | Jiajun |
+| 3 | One upload package: a frozen snapshot of the repository at the submitted commit, a plain-text note, and a copy of the report | Canvas upload | Jiajun |
 
-Item 3 is a snapshot, not a bag of leftovers. Everything a reader needs is
-already tracked in Git, so the archive's job is to freeze the exact bytes the
-report's link pointed at — a link can be edited after the deadline, an uploaded
-archive cannot. Build it with `git archive`, which by construction contains
-exactly the tracked files and nothing else:
+The two copies of the report in rows 1 and 3 must be the same file. Bundling it
+is a recorded owner decision; see §8 item 4.
 
-```bash
-git archive --format=zip --prefix=hotpotqa-retrieval/ -o cs6120_final_submission.zip <commit>
+The package has exactly this shape, and the nesting is load-bearing:
+
+```text
+cs6120_final_submission/                            <- this directory is zipped
+  |- SUBMISSION_NOTE.txt                            <- commit hash, entry point, exclusions
+  |- <final report>.pdf                             <- top level, never inside the snapshot
+  \- cs6120-hotpotqa-retrieval-failure-analysis/    <- the snapshot, byte for byte
 ```
 
-Do not assemble the archive by copying the working directory. See §6 for what
-that would leak. Measured at `9bff6cd`: the archive holds **112 files and 4.0 MB**,
-and none of the §6 exclusions appear in it.
+The snapshot directory is not a bag of leftovers. Everything a reader needs is
+already tracked in Git, so its job is to freeze the exact bytes the report's
+link pointed at — a link can be edited after the deadline, an uploaded package
+cannot. Its single verifiable property is that it equals `git archive` at the
+named commit, so **nothing may be added to it**, the report included. Build it
+with `git archive`, which by construction contains exactly the tracked files and
+nothing else:
+
+```bash
+git archive --format=zip \
+    --prefix=cs6120-hotpotqa-retrieval-failure-analysis/ \
+    -o snapshot.zip <commit>
+```
+
+Do not assemble the snapshot by copying the working directory. See §6 for what
+that would leak. The snapshot holds **113 files**, about 12.9 MB unpacked and
+roughly 4.2 MB compressed, and none of the §6 exclusions appear in it; measured
+at `f57d1ad`, and the count is stable across commits that change only the text
+of tracked files. Adding the report raises the package to 115 entries.
 
 ## 2. Report
 
 | Item | Path | State |
 |---|---|---|
-| Final report | `docs/Local/CS6120NLP_Final_Report_draft.pdf` | **draft**, local-only, password-protected, last written 2026-08-14 |
+| Report, draft | `docs/Local/CS6120NLP_Final_Report_draft.pdf` | **draft**, local-only, last written 2026-08-14 |
+| Report, final rendered file | not yet produced; its name is an owner slot in this table | pending |
 
 `docs/Local/` is excluded by `.gitignore`, deliberately: the report is a Canvas
 deliverable, not a repository artifact, and this directory also holds personal
-working notes that must not be published. The report is therefore **not** part of
-the archive in §1 unless the owners decide otherwise.
+working notes that must not be published. The report is therefore not part of
+the **snapshot** in §1. It is nonetheless carried at the top level of the upload
+package, which is a recorded owner decision; see §8 item 4.
+
+**Correction, 2026-08-14.** An earlier revision of this table described the
+draft as password-protected. That was wrong and is withdrawn. The raw bytes
+were checked: `/Encrypt` does not occur anywhere in the file, it opens with
+`%PDF-1.5`, closes with `%%EOF`, carries a `/Root`, and holds 16 page objects.
+The file is an unencrypted, structurally complete PDF. The claim is recorded
+here rather than deleted silently because this document is meant to be checked
+line by line, and a reader who saw the old wording deserves to see it retracted.
 
 Owner actions still required:
 
-- Replace the draft with the final rendered file and record its final name here.
+- Replace the draft with the final rendered file and record its final name in
+  the table above.
 - Confirm the repository link inside the report resolves and names the same
-  commit the archive was cut from.
+  commit the snapshot was cut from.
+- Open the final file on a machine that never held the authoring toolchain, to
+  confirm it renders for a reader who has only what was uploaded.
+- Confirm the copy inside the package and the copy uploaded to Canvas are the
+  same bytes.
 
 ## 3. Code
 
-All tracked. 112 files total; the breakdown below covers all of them.
+All tracked. 113 files total; the breakdown below covers all of them.
 
 ### 3.1 Entry points at the repository root
 
@@ -107,8 +144,11 @@ PYTHONUTF8=1  ->  2548 passed  (242s)
 default locale (cp936 on this machine)  ->  2547 passed, 1 failed
 ```
 
-The single failure is environment-dependent and is listed as an open item in §8.
-Anyone reproducing this should record which of the two lines they got.
+The single failure is environment-dependent and is listed as an open item in §9.
+Anyone reproducing this should record which of the two lines they got. Two later
+measurements refine this line and should be read with it: §7.12 covers both
+supported Python versions, and §7.13 covers what the suite does inside an
+unpacked snapshot, where the count is necessarily lower than 2548.
 
 ## 4. Results
 
@@ -164,7 +204,11 @@ The other documented commands do need a network connection on first run:
 `datasets` downloads HotpotQA (~600 MB) and the dense retriever downloads
 `all-MiniLM-L6-v2` (~90 MB).
 
-## 6. What must not be in the archive
+## 6. What must not be in the snapshot
+
+This section governs the snapshot directory of §1, not the package around it.
+The report is the one thing that rides at the package's top level while staying
+out of the snapshot; nothing else does.
 
 `git archive` excludes all of this automatically. The list exists so that a
 hand-assembled package can be checked against it, and so the exclusions are a
@@ -216,14 +260,15 @@ Run in order. Record the actual output of each, not the expectation.
 
 1. **Freeze the commit.** `git status --short` is empty and
    `git rev-list --left-right --count origin/main...HEAD` is `0 0`. Note the
-   commit hash; it is the one the report links to and the one the archive is cut
-   from.
+   commit hash; it is the one the report links to, the one the snapshot is cut
+   from, and the one `SUBMISSION_NOTE.txt` must name.
 2. **Clean-environment check.** Clone the repository to a new directory, create a
    fresh virtual environment, `pip install -r requirements.txt`, then run
-   `python demo.py` and confirm it exits 0 and prints all three sections. This is
-   the check the plan assigns to Jiajun and it has not been run yet.
+   `python demo.py` and confirm it exits 0 and prints all three sections. The
+   plan assigns this check to Jiajun. It was run on 2026-08-14; §7.10 records
+   the result.
 3. **Tests.** `python -m pytest tests/` in that clean clone. Record the count and
-   whether the locale-dependent failure in §8 appeared.
+   whether the locale-dependent failure in §9 appeared.
 4. **Result traceability.** Re-run the three regenerating tools named in §4 and
    confirm they reproduce their checked-in outputs.
 5. **Report render.** Open the final rendered report and check layout, figure
@@ -235,9 +280,13 @@ Run in order. Record the actual output of each, not the expectation.
    and the evidence-derived candidate taxonomy, not a rule-based analyzer. The
    planning documents under `docs/Plans/` are excluded from this check on
    purpose; see §8.
-7. **Archive contents.** Build the archive with `git archive`, then list its
-   contents and check every row of §6 is absent.
-8. **Both members approve** the exact report file and the exact archive.
+7. **Package contents.** Build the snapshot with `git archive` from the frozen
+   commit of step 1, then check four things: every row of §6 is absent; the
+   snapshot's files are byte for byte the committed blobs, line endings aside;
+   the report sits at the package's top level and *not* inside the snapshot
+   directory; and `SUBMISSION_NOTE.txt` names the frozen commit. §7.13 records
+   how this was measured and what the numbers were.
+8. **Both members approve** the exact report file and the exact package.
 9. **Upload, then verify.** Re-download what was uploaded and confirm it opens.
    Retain the submission confirmation and a local copy of both uploaded files.
 
@@ -245,6 +294,14 @@ Run in order. Record the actual output of each, not the expectation.
 
 Steps 2, 3, 4, and 7 were run on 2026-08-14 in a clean-environment check. Steps
 1, 5, 6, 8, and 9 were not part of that run and remain as written above.
+
+**Correction, 2026-08-14.** An earlier revision numbered the blocks below one
+higher than §7's list from the demo onward, because it counted the offline demo
+as a step of its own. It is not: §7 step 2 requires the demo as part of the
+clean-environment check. The effect was that this subsection appeared to report
+a PASS for step 5 while its own opening sentence said step 5 had not been run.
+The blocks are relabelled to §7's numbering below; the demo keeps its own
+heading with no number.
 
 Environment of the run: a fresh `git clone` of the repository at
 `9bff6cd288a6deae35414d53fdbb382de7074d26`, which was verified to equal
@@ -280,7 +337,8 @@ short path. A grader on Windows with long paths disabled will hit it if they
 clone deep; `requirements.txt` cannot prevent it. Worth one line in the README's
 setup section, if the owners want it.
 
-**Step 3 (offline demo) — PASS.** `python demo.py` exited 0 and printed all three
+**Offline demo (required by step 2, not a step of its own) — PASS.**
+`python demo.py` exited 0 and printed all three
 sections with no network access. Offline was enforced with `HF_HUB_OFFLINE=1`,
 `TRANSFORMERS_OFFLINE=1`, `HF_DATASETS_OFFLINE=1` and the proxy variables pointed
 at a dead port, so any outbound HTTP would have failed immediately. Section 1
@@ -289,7 +347,7 @@ printed the three-row headline table, section 2 printed example
 `5a713a5a5542994082a3e6a9` and damage `5a7571135542992d0ec05f98`. Every printed
 figure matched the checked-in CSVs.
 
-**Step 4 (tests) — neither of the two outcomes §3.4 predicts.** Both runs
+**Step 3 (tests) — neither of the two outcomes §3.4 predicts.** Both runs
 collected 2548 tests, which is the expected total, but the clean clone
 distributes them differently:
 
@@ -337,7 +395,7 @@ still fails because Python decodes subprocess output with the ANSI code page,
 which remained cp936. Setting `chcp` is therefore not a workaround — only
 `PYTHONUTF8=1` is.
 
-**Step 5 (result traceability) — PASS, byte for byte.** All three tools from §4
+**Step 4 (result traceability) — PASS, byte for byte.** All three tools from §4
 were re-run in the clone and each rewrote its target; SHA-256 before and after
 was identical in every case, and `git status --short` was empty afterwards.
 
@@ -356,10 +414,12 @@ rerank rows` and `Output passes §9.3 schema, §9.2 types/ranges, §9.5 identiti
 and the oracle`. `manual_review_category_counts.py --check` self-reported `30
 unit rows, denominator 30, counts sum to 30`.
 
-**Step 7 (archive contents) — PASS.** Built from `9bff6cd` with the §1 command.
-The archive holds **112 files and 3.98 MB** (4,177,299 bytes compressed; 12.33 MB
-uncompressed; 127 zip entries, of which 15 are directory entries). This matches
-the figure §1 records.
+**Step 7 (snapshot contents) — PASS.** Built from `9bff6cd` with the §1 command.
+The archive held **112 files and 3.98 MB** (4,177,299 bytes compressed; 12.33 MB
+uncompressed; 127 zip entries, of which 15 are directory entries) at that
+commit. §1 states 113, which is the count from `f57d1ad` onward: this document
+was itself added between the two commits, and it is the whole of the difference
+in the file count.
 
 Every row of §6 was checked against the listing and every one is absent:
 `docs/Local/`, `docs/Completion_Log/Xin_*`, `.claude/`, `results/runs/`,
@@ -442,6 +502,37 @@ at the long path anyway and the install fails exactly as before. Installing with
 `pip install --target <short path>` does not go through that resolution and
 succeeds. On a host with `LongPathsEnabled = 1` neither workaround is needed.
 
+### 7.13 The snapshot that goes in the package was verified, 2026-08-14
+
+Step 7 as recorded in §7.10 was measured at `9bff6cd`, before the fixes that
+§7.11 and §7.12 describe. It was therefore re-run on the built package. Measured
+at `f57d1ad`; the snapshot was produced by `git archive`, not by copying the
+working directory.
+
+| Check | Result |
+|---|---|
+| File count | **113**, matching `git ls-tree -r --name-only` at the commit |
+| Bytes | every file equals its committed blob apart from line endings; the files that differ carry no recorded digest, and `docs/specs/**` and `results/annotations/**` come out exactly as §7.11 describes |
+| Extra files | none; nothing present that the commit does not track |
+| §6 exclusions | every row absent, re-checked against the listing |
+| Private logs | no `docs/Completion_Log/Xin_*` path present |
+| Secrets | a scan for `.env`, `secret`, `credential`, `.pem`, `id_rsa`, `.key`, and `token` returned nothing |
+| Offline demo | `python demo.py` exited 0 from inside the unpacked snapshot with no network |
+| Full suite | **2461 passed, 80 skipped** — 78 for the absent `results/runs/2026-07-17_a/` and 2 for the checks §7.11 skips outside a repository |
+
+Two hygiene rules belong to this step, both learned by getting them wrong. When
+running the suite inside the snapshot, point `--basetemp` at a directory
+**outside** the package; a run left in place once deposited 2242 files and
+136 MB of test scratch that came within one command of being zipped. Afterwards
+remove `.pytest_cache/` and every `__pycache__/` the run created, then re-check
+the file count above — a snapshot that no longer equals `git archive` has lost
+the only property it exists to have.
+
+This subsection records a measurement, not a standing guarantee. The uploaded
+package is cut from the final commit, which is later than `f57d1ad`, so step 7
+is re-run against it. Where the two commits differ only in the text of tracked
+files, every figure above carries over unchanged.
+
 ## 8. Owner decisions recorded 2026-08-14
 
 Written down because the plan requires each of these to be recorded, and because
@@ -466,6 +557,14 @@ a silent omission reads the same as an oversight.
    final method. The authoritative descriptions are the report, `README.md`,
    `docs/manual_review_v1/README.md`, `docs/taxonomy_candidate_v0_1.md`, and
    `docs/manual_review_v1_failure_analysis.md`.
+4. **The report is carried inside the upload package as well as uploaded to
+   Canvas on its own.** An earlier revision of §2 said the report was not part
+   of the package "unless the owners decide otherwise". The owners decided
+   otherwise, so a grader who opens only the package still has the written work
+   in hand. The report goes at the package's **top level**; it does not go
+   inside the snapshot directory, because the snapshot's one verifiable
+   property is that it equals `git archive` at the named commit and any added
+   file destroys it. The two copies must be the same bytes.
 
 ## 9. Remaining open items
 
@@ -494,8 +593,9 @@ a silent omission reads the same as an oversight.
    Python 3.11 and under `pandas 2.3.3` / Python 3.9, and the full suite is
    `2548 passed` in the project environment. Retired by §7.12: the full suite is
    `2548 passed` on Python 3.11.5 with `pandas 3.0.5`, which is the environment
-   the failure needed. See §7.10 step 4 for the original diagnosis.
+   the failure needed. See §7.10 step 3 for the original diagnosis.
 5. **78 tests skip in any clean clone.** They require `results/runs/2026-07-17_a/`,
    which §6 excludes from Git on purpose. The skips are correct behaviour, but
    the `2548 passed` line in §3.4 is only reachable in an environment where that
-   directory exists locally, so no grader will see it. See §7.10 step 4.
+   directory exists locally, so no grader will see it. See §7.10 step 3, and
+   §7.13 for the count a grader does see.
