@@ -189,11 +189,19 @@ venv/Scripts/python.exe -m pytest tests/    # Windows
 python -m pytest tests/                     # elsewhere
 ```
 
-A fresh clone reports `2470 passed, 78 skipped`. The 78 skips are expected and
-self-declared: they belong to controls that read a complete failure-review run
-directory, and run directories are too large to commit (see *Failure review and
-manual annotation* above), so those tests skip themselves when the directory is
-absent rather than fail.
+A fresh clone reports `2470 passed, 78 skipped`. Unpacked from a source archive,
+which carries no Git history, it reports `2461 passed, 80 skipped`. Every skip is
+expected and prints its own reason, and there are two kinds:
+
+- **78** belong to controls that read a complete failure-review run directory.
+  Run directories are too large to commit (see *Failure review and manual
+  annotation* above), so these skip themselves when the directory is absent
+  rather than fail.
+- **2 more, outside a Git checkout only.** One guard checks the line endings of
+  the *tracked* specification files, and an archive has no index to enumerate.
+  The same module's other checks -- the accepted digest of the course protocol
+  and the presence of the `.gitattributes` rule -- read bytes straight off disk
+  and still run.
 
 Two environment notes, both Windows-only. Use the project virtual environment
 explicitly; a system-wide Anaconda install can shadow imports and produce

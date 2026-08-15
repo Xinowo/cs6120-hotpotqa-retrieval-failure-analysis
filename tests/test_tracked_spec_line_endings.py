@@ -24,6 +24,15 @@ the same review that approves the edit, and this test is meant to be the thing
 that stops an unreviewed one. The failure message says so, because a bare digest
 mismatch reads like a broken test rather than a changed authority.
 
+Two of the checks need a Git index and two do not, and the split matters outside
+a checkout. The submission archive is `git archive` output — the tracked files
+and no `.git` — and running the suite from it is supported, so the two checks
+that enumerate the tracked set skip themselves there rather than erroring. They
+skip rather than fail because "which paths does Git own" is not a question an
+archive can answer, not because the invariant stopped mattering. The digest of
+the accepted protocol and the presence of the attribute rule are both read
+straight off disk, so those two still run and still hold in an unpacked archive.
+
 The two helpers are checked against a legal control and against single-defect
 mutations, so a guard that had stopped discriminating could not pass quietly.
 The set being guarded is checked the same way: the discovery is exercised
@@ -50,6 +59,37 @@ ACCEPTED_PROTOCOL = "docs/specs/2026-07-27-manual-failure-review-course-protocol
 ACCEPTED_PROTOCOL_SIZE = 40102
 ACCEPTED_PROTOCOL_DIGEST = \
     "5BB4E045C363BA2C239EF3091824D348EBA66E6571BBA2EF01042AF3D22FBDD2"
+
+
+def _is_own_repository_root(root):
+    """Whether `root` is itself the root of the Git repository that owns it.
+
+    Kept separate from the `git ls-files` failure below, because the two mean
+    opposite things. The submission archive is `git archive` output: the tracked
+    files and no `.git` at all. Unpacking it and running the suite is a supported
+    way to read this project, so "these files are not in an index" is an expected
+    state, in which a guard over *tracked* bytes has nothing to enumerate and must
+    step aside. Any `git ls-files` failure below still means an index exists but
+    could not be read, which is a broken environment and remains an error.
+
+    The question is asked as "is this tree its own repository" rather than "is
+    there a repository anywhere above" on purpose. Git searches upwards, so an
+    archive unpacked *inside* some unrelated checkout -- a scratch directory under
+    another project, say -- answers yes to the weaker question while every path
+    here belongs to a different index, and the guard would then enumerate an empty
+    set and report it as a missing specification directory. Comparing the reported
+    top level against this tree is what distinguishes the two.
+    """
+    completed = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
+        capture_output=True,
+    )
+    if completed.returncode != 0:
+        return False
+    toplevel = completed.stdout.decode("utf-8", "replace").strip()
+    if not toplevel:
+        return False
+    return os.path.realpath(toplevel) == os.path.realpath(str(root))
 
 
 def _tracked_specifications(root, directory=SPEC_DIRECTORY):
@@ -91,7 +131,18 @@ def _tracked_specifications(root, directory=SPEC_DIRECTORY):
     return sorted(path for path in entries if path.endswith(".md"))
 
 
-TRACKED_SPECIFICATIONS = _tracked_specifications(REPO_ROOT)
+INDEX_AVAILABLE = _is_own_repository_root(REPO_ROOT)
+
+NO_INDEX_REASON = (
+    "this tree is not its own Git repository, so there is no tracked set to "
+    "enumerate; that is the expected state inside an unpacked source archive, "
+    "not a broken checkout. The two checks that read bytes straight off disk "
+    "still run, so the accepted digest and the attribute rule stay guarded."
+)
+
+TRACKED_SPECIFICATIONS = (
+    _tracked_specifications(REPO_ROOT) if INDEX_AVAILABLE else []
+)
 
 
 def _read_bytes(relative_path):
@@ -130,6 +181,7 @@ def _identity_violations(relative_path, data, expected_size, expected_digest):
 
 # ───────────────────────── the rule holds on real bytes ──────────────────────
 
+@pytest.mark.skipif(not INDEX_AVAILABLE, reason=NO_INDEX_REASON)
 def test_the_specification_directory_is_not_empty():
     """A guard over an empty discovery would pass vacuously forever."""
     assert len(TRACKED_SPECIFICATIONS) >= 6, \
@@ -138,6 +190,7 @@ def test_the_specification_directory_is_not_empty():
     assert ACCEPTED_PROTOCOL in TRACKED_SPECIFICATIONS
 
 
+@pytest.mark.skipif(not INDEX_AVAILABLE, reason=NO_INDEX_REASON)
 @pytest.mark.parametrize("specification", TRACKED_SPECIFICATIONS)
 def test_every_tracked_specification_checks_out_lf_only(specification):
     """The whole directory is the unit of the rule, so check the whole directory."""

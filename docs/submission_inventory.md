@@ -375,6 +375,50 @@ The archive built during this check was a verification artifact and was deleted
 with the clone. The archive that is actually uploaded must be rebuilt from the
 final commit.
 
+### 7.11 The archive was run as an archive, 2026-08-14
+
+Every earlier check in §7 was performed on a Git *clone*. That is not what is
+uploaded, and the difference was not cosmetic: unpacking the archive and running
+the documented test command failed at collection, so **no test ran at all**.
+
+```text
+RuntimeError: could not ask git for the tracked files under docs/specs/ ...
+  stderr was 'fatal: not a git repository (or any of the parent directories): .git'
+Interrupted: 1 error during collection
+```
+
+`tests/test_tracked_spec_line_endings.py` discovered the tracked specification
+set at import time, so the absence of an index was raised as an error during
+collection rather than handled, and one module took the whole suite down with it.
+
+Fixed by asking whether the tree is its own repository root and skipping the two
+checks that enumerate tracked paths when it is not. The check is written as "is
+this tree its own repository" rather than "is there a repository above", because
+an archive unpacked inside an unrelated checkout answers yes to the weaker
+question while every path in it belongs to a different index. The module's other
+checks read bytes off disk and are unaffected, so the accepted protocol digest
+and the `.gitattributes` rule stay guarded in an archive.
+
+Verified in all three environments:
+
+| Environment | Result |
+|---|---|
+| the repository itself | `18 passed` for the module; `2548 passed` for the suite |
+| archive unpacked inside another repository | `9 passed, 2 skipped` |
+| archive unpacked outside any repository | `2461 passed, 80 skipped` for the suite |
+
+Two further properties of the archive were confirmed while diagnosing this, both
+by comparing extracted bytes against the committed blobs:
+
+- `.gitattributes` is honoured by `git archive`. `docs/specs/**` comes out LF and
+  the course protocol still hashes to its accepted digest
+  (`5BB4E045...`, 40102 bytes); the `results/annotations/**` files come out
+  byte-identical to their blobs. The CR bytes visible inside those CSVs are
+  literal cell content, not conversion.
+- The 98 files that do differ from their blobs differ only in line endings, and
+  they are exactly the files no recorded digest describes. None of them carry a
+  checksum, and the suite is green over them.
+
 ## 8. Owner decisions recorded 2026-08-14
 
 Written down because the plan requires each of these to be recorded, and because
