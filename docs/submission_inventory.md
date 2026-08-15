@@ -175,12 +175,40 @@ recorded decision rather than an accident.
 | `docs/Local/` (6.3 MB) | personal working notes, the personal implementation plan, the proposal, the instructor's own PDFs, and the report draft. Not publishable. |
 | `docs/Completion_Log/Xin_*` | one member's private session logs |
 | `.claude/` | local design records, reviews, prompts, and scratch |
-| `results/runs/` (44.8 MB) | large failure-review intermediates; `config.json` records the producing commit, so they are reproducible rather than lost |
+| `results/runs/` (44.8 MB) | large failure-review intermediates. Regenerable by `scripts/run_failure_review.py`, but not byte for byte -- see the note below. Nothing in the reported results depends on them. |
 | `results/annotations/*/*_cases.json`, `*_notes*.csv` (~1.2 MB) | per-reviewer case files that embed full paragraph text; they regenerate byte-for-byte via `scripts/build_manual_review_batch.py` |
 | `docs/manual_review_v1/per_case_analysis/`, `tools/`, `taxonomy_todo.md`, `references/2026-08-05-*.md` | working material; the exclusion is documented for readers in `docs/manual_review_v1/README.md` |
 | `venv/`, `__pycache__/`, `.pytest_cache/` | environment and caches |
 
 No secret, credential, or API key is tracked in this repository.
+
+### 6.1 What "regenerable" means for `results/runs/`, precisely
+
+Measured on `results/runs/2026-07-17_a/` on 2026-08-14, because the earlier
+wording of the row above claimed more than is true. Three things stand between a
+rerun and the original bytes, and they are not equally serious.
+
+1. **Two of the five files can never match.** `config.json` stamps its own
+   `timestamp`, and `failures_review.html` embeds that whole config block
+   verbatim. A rerun therefore differs in both by construction, independently of
+   anything else.
+2. **The commit the run names is not on `main`.** `config.json` records
+   `git_commit: 135765bb34910bd4191352d1c95ac8876e7ddb3d`, which is reachable
+   only from `origin/refactor/metrics-schema-v2`. A full `git clone` fetches it,
+   so `git checkout 135765b` works from a clone; the submission archive carries
+   no Git history at all, so from the archive alone the producing code state is
+   not recoverable.
+3. **Scores are not bit-pinned.** `requirements.txt` bounds neither `torch` nor
+   `sentence-transformers`, and no seed is set. Ranking itself is deterministic
+   -- `DenseRetriever._rank_paragraphs` sorts stably, so equal scores keep corpus
+   order -- but a different backend can move an embedding in its last bits, and
+   that can reorder a near-tie.
+
+What does survive is the part that is cited. `metrics.json` holds aggregate rates
+over 500 examples rounded to three decimals, which last-bit noise does not move,
+and those figures match the headline table in `README.md` and the tracked result
+CSVs. So the *findings* are reproducible; the *files* are not, and no claim in
+the report rests on the files.
 
 ## 7. Pre-upload verification
 
