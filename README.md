@@ -4,9 +4,9 @@ A controlled comparison of BM25 (lexical), dense (embedding-based), and cross-en
 
 Status -- **research and result artifacts are complete**: all three retrieval stages ran over the first 500 HotpotQA validation examples in both corpus settings, with Any/Full/Partial Evidence Recall and MRR reported, and the reranker rescue/damage analysis plus the v1 manual failure review (30 hand-labelled units, candidate taxonomy v0.1) are landed.
 
-Still open, and not to be read as finished: the written report; the [AI Usage Declaration](docs/AI_Usage_Declaration.md), which is still marked `status: draft` and holds one unresolved placeholder; and the clean-environment reproducibility check, submission inventory, and packaging pass.
+What the submission consists of, and where each item lives, is listed in [docs/submission_inventory.md](docs/submission_inventory.md).
 
-One open item is a decision rather than a deliverable: the optional **fine-tuning extension** -- contrastively fine-tuning the dense encoder and re-evaluating per failure category -- has a joint go/no-go gate that the plan schedules for 8/5 and requires to be recorded either way. No such decision is recorded anywhere in this repository, so the gate is unresolved rather than settled. The extension is off by default and nothing here implements it, but an absent implementation is not a recorded no-go; that decision remains with Xin and Jiajun.
+The AI Usage Declaration and the per-member contribution statements are sections of the report; [docs/AI_Usage_Declaration.md](docs/AI_Usage_Declaration.md) is this repository's working copy of that disclosure.
 
 ## Setup
 
@@ -208,6 +208,7 @@ Use the project virtual environment explicitly on Windows; a system-wide Anacond
 - [scripts/reporting/README.md](scripts/reporting/README.md) -- the reporting and audit tools.
 - [docs/manual_review_v1/README.md](docs/manual_review_v1/README.md) -- the manual failure-review record and its scope limits.
 - [docs/AI_Usage_Declaration.md](docs/AI_Usage_Declaration.md) -- which components are hand-written and which are agent-generated.
+- [docs/submission_inventory.md](docs/submission_inventory.md) -- what the final submission consists of, where each item lives, and what is deliberately excluded from the archive.
 
 ## Team
 

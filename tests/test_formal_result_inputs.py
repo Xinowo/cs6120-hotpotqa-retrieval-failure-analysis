@@ -958,6 +958,13 @@ def test_typed_layer_refuses_a_frame_without_a_setting_column():
 @pytest.mark.parametrize("value", ["Pooled", "bogus", "", None, 0])
 def test_typed_layer_refuses_an_unknown_setting_value(value):
     df = _typed_frame()
+    # `setting` is inferred as `object` under pandas 2 and as the dedicated
+    # `str` dtype under pandas 3, and a `str` column physically refuses a
+    # non-string scalar on assignment. Widening to `object` first keeps the
+    # non-string cases (`0`) constructible on both, and it is also the only
+    # column type that could carry such a value to the validator in the first
+    # place, so the frame under test stays a frame a caller could really build.
+    df["setting"] = df["setting"].astype(object)
     df.loc[df.index[0], "setting"] = value
     with pytest.raises(ValueError, match="cannot decide metric placement"):
         fri.validate_typed_metric_frame(df, "direct")
