@@ -32,7 +32,7 @@ It is a presentation layer, so every number it prints is read from a cell of an 
 ## Project structure
 
 ```text
-hotpotqa-retrieval/
+cs6120-hotpotqa-retrieval-failure-analysis/
   demo.py                     # offline walkthrough of the accepted results (see Demo above)
   src/
     data_loader.py            # loads HotpotQA, builds per-question and pooled corpora + gold titles
@@ -189,7 +189,25 @@ venv/Scripts/python.exe -m pytest tests/    # Windows
 python -m pytest tests/                     # elsewhere
 ```
 
-Use the project virtual environment explicitly on Windows; a system-wide Anaconda install can shadow imports and produce failures unrelated to the code.
+A fresh clone reports `2470 passed, 78 skipped`. The 78 skips are expected and
+self-declared: they belong to controls that read a complete failure-review run
+directory, and run directories are too large to commit (see *Failure review and
+manual annotation* above), so those tests skip themselves when the directory is
+absent rather than fail.
+
+Two environment notes, both Windows-only. Use the project virtual environment
+explicitly; a system-wide Anaconda install can shadow imports and produce
+failures unrelated to the code. And if the console code page is not UTF-8 --
+cp936 on a Chinese Windows, for example -- set `PYTHONUTF8=1` before running.
+One test deliberately feeds a full-width digit through a subprocess, and Python
+decodes a child process's output with the ANSI code page, which cannot represent
+that character; changing `chcp` alone does not help.
+
+```bash
+set PYTHONUTF8=1        # cmd
+$env:PYTHONUTF8 = "1"   # PowerShell
+export PYTHONUTF8=1     # bash
+```
 
 ## Key terminology
 
