@@ -17,7 +17,7 @@ source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-Requires Python 3.10+. `datasets` will download HotpotQA from Hugging Face on first run (~600MB), and the dense retriever downloads `all-MiniLM-L6-v2` (~90MB), so the first run needs an internet connection; afterward both are cached locally.
+The project has been tested successfully with Python 3.9.7 and 3.11.5. `datasets` will download HotpotQA from Hugging Face on first run (~600MB), and the dense retriever downloads `all-MiniLM-L6-v2` (~90MB), so the first run needs an internet connection; afterward both are cached locally.
 
 ## Demo
 

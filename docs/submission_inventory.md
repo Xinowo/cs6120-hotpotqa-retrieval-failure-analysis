@@ -67,7 +67,7 @@ All tracked. 112 files total; the breakdown below covers all of them.
 | Path | What it is |
 |---|---|
 | `README.md` | setup, demo, the three formal experiment commands, project structure, document map |
-| `requirements.txt` | the runtime dependencies; Python 3.10+ |
+| `requirements.txt` | the runtime dependencies. Tested on Python 3.9.7 and 3.11.5; the earlier "3.10+" claim here was wrong, since the project virtual environment is 3.9.7. |
 | `demo.py` | the offline walkthrough, spec `docs/specs/2026-08-14-offline-demo.md` |
 | `LICENSE` | — |
 | `.gitignore`, `.gitattributes` | exclusion rules and the LF locks on checksum-bearing artifacts |
@@ -419,6 +419,29 @@ by comparing extracted bytes against the committed blobs:
   they are exactly the files no recorded digest describes. None of them carry a
   checksum, and the suite is green over them.
 
+### 7.12 Both supported Python versions were run, 2026-08-14
+
+`README.md` states that the project has been tested on Python 3.9.7 and 3.11.5.
+Both halves were measured, because the two versions do not resolve the same
+dependency set: 3.9 caps `pandas` at the 2.x line, so only a 3.11 environment
+exercises `pandas` 3.x at all.
+
+| Interpreter | Resolved dependencies | Full suite |
+|---|---|---|
+| 3.9.7 (the project virtual environment) | `pandas 2.3.3` | `2548 passed` |
+| 3.11.5 (clean install from `requirements.txt`) | `pandas 3.0.5`, `numpy 2.4.6`, `torch 2.13.0+cpu`, `pytest 9.1.1` | `2548 passed` |
+
+The 3.11.5 run is what retires §9 item 4: that failure needed `pandas` 3.x to
+reproduce, and the environment above is the one that resolves it.
+
+Building that environment ran into the long-path limit of §7.10 again, and the
+first workaround failed in a way worth recording. Mapping a drive letter with
+`subst` does shorten the path, but `python -m venv` resolves the mapping back to
+the real location and reports doing so, so the deep `torch` headers are unpacked
+at the long path anyway and the install fails exactly as before. Installing with
+`pip install --target <short path>` does not go through that resolution and
+succeeds. On a host with `LongPathsEnabled = 1` neither workaround is needed.
+
 ## 8. Owner decisions recorded 2026-08-14
 
 Written down because the plan requires each of these to be recorded, and because
@@ -469,8 +492,9 @@ a silent omission reads the same as an oversight.
    3.0.5, so an upper bound would buy nothing. Verified on both majors:
    `tests/test_formal_result_inputs.py` is `814 passed` under `pandas 3.0.5` /
    Python 3.11 and under `pandas 2.3.3` / Python 3.9, and the full suite is
-   `2548 passed` in the project environment. See §7.10 step 4 for the original
-   diagnosis.
+   `2548 passed` in the project environment. Retired by §7.12: the full suite is
+   `2548 passed` on Python 3.11.5 with `pandas 3.0.5`, which is the environment
+   the failure needed. See §7.10 step 4 for the original diagnosis.
 5. **78 tests skip in any clean clone.** They require `results/runs/2026-07-17_a/`,
    which §6 excludes from Git on purpose. The skips are correct behaviour, but
    the `2548 passed` line in §3.4 is only reachable in an environment where that
